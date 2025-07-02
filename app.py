@@ -1,4 +1,5 @@
 import os
+import time
 from flask import (
     Flask,
     render_template,
@@ -6,6 +7,7 @@ from flask import (
     redirect,
     url_for,
     flash,
+    session,
 )
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -232,6 +234,68 @@ def delete_file(assistant_id, file_id):
     except Exception as e:
         flash(f'Ошибка: {e}')
     return redirect(url_for('edit_assistant', assistant_id=assistant_id))
+
+
+@app.route('/assistants/<assistant_id>/test', methods=['GET', 'POST'])
+def test_assistant(assistant_id):
+    if 'threads' not in session:
+        session['threads'] = {}
+    threads = session['threads']
+    thread_id = threads.get(assistant_id)
+    if not thread_id:
+        thread = client.beta.threads.create()
+        thread_id = thread.id
+        threads[assistant_id] = thread_id
+        session.modified = True
+
+    if request.method == 'POST':
+        prompt = request.form.get('prompt', '').strip()
+        if prompt:
+            try:
+                client.beta.threads.messages.create(
+                    thread_id, role='user', content=prompt
+                )
+                run = client.beta.threads.runs.create(
+                    thread_id=thread_id, assistant_id=assistant_id
+                )
+                while run.status in ('queued', 'in_progress'):
+                    time.sleep(1)
+                    run = client.beta.threads.runs.retrieve(thread_id, run.id)
+            except Exception as e:
+                flash(f'Ошибка: {e}')
+
+    try:
+        assistant = client.beta.assistants.retrieve(assistant_id)
+    except Exception as e:
+        flash(f'Ошибка: {e}')
+        return redirect(url_for('list_assistants'))
+
+    try:
+        messages = client.beta.threads.messages.list(
+            thread_id, order='asc'
+        ).data
+    except Exception as e:
+        flash(f'Ошибка: {e}')
+        messages = []
+
+    return render_template(
+        'test_assistant.html', assistant=assistant, messages=messages
+    )
+
+
+@app.route('/assistants/<assistant_id>/reset', methods=['POST'])
+def reset_assistant_thread(assistant_id):
+    threads = session.get('threads', {})
+    thread_id = threads.pop(assistant_id, None)
+    session['threads'] = threads
+    session.modified = True
+    if thread_id:
+        try:
+            client.beta.threads.delete(thread_id)
+        except Exception:
+            pass
+    flash('Диалог очищен')
+    return redirect(url_for('test_assistant', assistant_id=assistant_id))
 
 
 @app.route('/filesearch')
