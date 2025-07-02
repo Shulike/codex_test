@@ -260,7 +260,9 @@ def test_assistant(assistant_id):
                 )
                 while run.status in ('queued', 'in_progress'):
                     time.sleep(1)
-                    run = client.beta.threads.runs.retrieve(thread_id, run.id)
+                    run = client.beta.threads.runs.retrieve(
+                        run.id, thread_id=thread_id
+                    )
             except Exception as e:
                 flash(f'Ошибка: {e}')
 
