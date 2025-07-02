@@ -70,31 +70,69 @@ def index():
     billing = get_billing_data()
     if billing.get("error"):
         flash(f"Ошибка получения данных: {billing['error']}")
+    try:
+        assistants = client.beta.assistants.list(limit=100).data
+    except Exception as e:
+        flash(f"Ошибка: {e}")
+        assistants = []
     return render_template(
         'index.html',
         title='Дашборд',
         daily=billing['daily'],
         total_usage=billing['total_usage'],
         available=billing['available'],
+        assistants=assistants,
     )
 
 @app.route('/generate', methods=['POST'])
 def generate():
-    prompt = request.form.get('prompt', '')
-    if not prompt:
-        flash('Введите запрос')
+    prompt = request.form.get('prompt', '').strip()
+    assistant_id = request.form.get('assistant_id', '').strip()
+    if not prompt or not assistant_id:
+        flash('Введите запрос и выберите ассистента')
         return redirect(url_for('index'))
 
     try:
-        response = client.chat.completions.create(
-            model='gpt-3.5-turbo',
-            messages=[{'role': 'user', 'content': prompt}],
-            max_tokens=150
+        thread = client.beta.threads.create()
+        client.beta.threads.messages.create(thread.id, role='user', content=prompt)
+        run = client.beta.threads.runs.create(
+            thread_id=thread.id,
+            assistant_id=assistant_id,
         )
-        answer = response.choices[0].message.content
+        while run.status in ('queued', 'in_progress'):
+            time.sleep(1)
+            run = client.beta.threads.runs.retrieve(run.id, thread_id=thread.id)
+        messages = client.beta.threads.messages.list(thread.id, order='asc').data
+        answer = ''
+        for m in messages:
+            if m.role == 'assistant' and m.content:
+                answer = m.content[0].text.value
+        try:
+            client.beta.threads.delete(thread.id)
+        except Exception:
+            pass
     except Exception as e:
         answer = f'Ошибка: {e}'
-    return render_template('index.html', prompt=prompt, answer=answer)
+
+    billing = get_billing_data()
+    if billing.get('error'):
+        flash(f"Ошибка получения данных: {billing['error']}")
+    try:
+        assistants = client.beta.assistants.list(limit=100).data
+    except Exception:
+        assistants = []
+
+    return render_template(
+        'index.html',
+        title='Дашборд',
+        daily=billing['daily'],
+        total_usage=billing['total_usage'],
+        available=billing['available'],
+        assistants=assistants,
+        prompt=prompt,
+        answer=answer,
+        selected_assistant=assistant_id,
+    )
 
 
 @app.route('/assistants')

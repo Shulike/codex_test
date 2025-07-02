@@ -38,6 +38,14 @@
 <h2>Быстрый запрос</h2>
 <form action="/generate" method="post" class="mb-3 animate__animated animate__fadeIn">
     <div class="mb-3">
+        <label class="form-label">Ассистент</label>
+        <select name="assistant_id" class="form-select">
+        {% for a in assistants %}
+            <option value="{{ a.id }}" {% if a.id == selected_assistant %}selected{% endif %}>{{ a.name or a.id }}</option>
+        {% endfor %}
+        </select>
+    </div>
+    <div class="mb-3">
         <label for="prompt" class="form-label">Запрос</label>
         <textarea name="prompt" id="prompt" class="form-control" rows="4">{{ prompt|default('') }}</textarea>
     </div>
