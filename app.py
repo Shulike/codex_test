@@ -20,7 +20,11 @@ openai_api_key = os.environ.get('OPENAI_API_KEY')
 if not openai_api_key:
     raise RuntimeError("OPENAI_API_KEY environment variable not set")
 
-client = OpenAI(api_key=openai_api_key)
+# Needed for vector stores and other beta features
+client = OpenAI(
+    api_key=openai_api_key,
+    default_headers={"OpenAI-Beta": "assistants=v2"},
+)
 
 @app.route('/')
 def index():
@@ -56,7 +60,7 @@ def new_assistant():
     default_model = 'gpt-4o-mini'
     try:
         models = [m.id for m in client.models.list().data if m.id.startswith('gpt')]
-        vector_stores = client.beta.vector_stores.list().data
+        vector_stores = client.vector_stores.list().data
     except Exception:
         models = ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo-1106']
         vector_stores = []
@@ -96,7 +100,7 @@ def edit_assistant(assistant_id):
         assistant = client.beta.assistants.retrieve(assistant_id)
         files = client.beta.assistants.files.list(assistant_id).data
         models = [m.id for m in client.models.list().data if m.id.startswith('gpt')]
-        vector_stores = client.beta.vector_stores.list().data
+        vector_stores = client.vector_stores.list().data
     except Exception as e:
         flash(f'Ошибка: {e}')
         return redirect(url_for('list_assistants'))
@@ -178,7 +182,7 @@ def delete_file(assistant_id, file_id):
 @app.route('/filesearch')
 def list_vector_stores():
     try:
-        vector_stores = client.beta.vector_stores.list().data
+        vector_stores = client.vector_stores.list().data
     except Exception as e:
         flash(f'Ошибка: {e}')
         vector_stores = []
@@ -194,7 +198,7 @@ def new_vector_store():
             kwargs = {"name": name}
             if file_id:
                 kwargs["file_ids"] = [file_id]
-            client.beta.vector_stores.create(**kwargs)
+            client.vector_stores.create(**kwargs)
             flash('File Search создан')
             return redirect(url_for('list_vector_stores'))
         except Exception as e:
@@ -205,8 +209,8 @@ def new_vector_store():
 @app.route('/filesearch/<vs_id>')
 def view_vector_store(vs_id):
     try:
-        vector_store = client.beta.vector_stores.retrieve(vs_id)
-        files = client.beta.vector_stores.files.list(vs_id).data
+        vector_store = client.vector_stores.retrieve(vs_id)
+        files = client.vector_stores.files.list(vs_id).data
     except Exception as e:
         flash(f'Ошибка: {e}')
         return redirect(url_for('list_vector_stores'))
@@ -216,7 +220,7 @@ def view_vector_store(vs_id):
 @app.route('/filesearch/<vs_id>/delete', methods=['POST'])
 def delete_vector_store(vs_id):
     try:
-        client.beta.vector_stores.delete(vs_id)
+        client.vector_stores.delete(vs_id)
         flash('File Search удалён')
     except Exception as e:
         flash(f'Ошибка: {e}')
@@ -227,7 +231,7 @@ def delete_vector_store(vs_id):
 def add_vector_store_file(vs_id):
     file_id = request.form.get('file_id')
     try:
-        client.beta.vector_stores.files.create(vs_id, file_id=file_id)
+        client.vector_stores.files.create(vs_id, file_id=file_id)
         flash('Файл добавлен')
     except Exception as e:
         flash(f'Ошибка: {e}')
@@ -237,7 +241,7 @@ def add_vector_store_file(vs_id):
 @app.route('/filesearch/<vs_id>/files/<file_id>/delete', methods=['POST'])
 def delete_vector_store_file(vs_id, file_id):
     try:
-        client.beta.vector_stores.files.delete(vs_id, file_id)
+        client.vector_stores.files.delete(vs_id, file_id)
         flash('Файл удалён')
     except Exception as e:
         flash(f'Ошибка: {e}')
