@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex flex-column justify-content-center align-items-center" style="min-height:80vh;">
+  <h1 class="display-4 mb-4">OpenAi hub api v2.0</h1>
+  <div>
+    <a href="{{ url_for('login') }}" class="btn btn-primary me-2">Вход</a>
+    <a href="{{ url_for('register') }}" class="btn btn-secondary">Регистрация</a>
+  </div>
+</div>
+{% endblock %}

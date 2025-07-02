@@ -91,7 +91,7 @@ def inject_user():
 
 @app.before_request
 def require_login():
-    if request.endpoint in {"login", "register", "static"}:
+    if request.endpoint in {"login", "register", "static", "index"}:
         return
     if not session.get("user_id"):
         return redirect(url_for("login", next=request.path))
@@ -194,6 +194,8 @@ def get_billing_data():
 
 @app.route('/')
 def index():
+    if not session.get("user_id"):
+        return render_template('landing.html', title='OpenAi hub api v2.0')
     billing = get_billing_data()
     if billing.get("error"):
         flash_error(f"Ошибка получения данных: {billing['error']}")
