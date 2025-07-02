@@ -1,5 +1,6 @@
 import os
 import time
+import sqlite3
 from datetime import datetime, timedelta
 import requests
 from flask import (
@@ -12,6 +13,8 @@ from flask import (
     session,
 )
 import logging
+from functools import wraps
+from werkzeug.security import generate_password_hash, check_password_hash
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -42,6 +45,101 @@ client = OpenAI(
     api_key=openai_api_key,
     default_headers={"OpenAI-Beta": "assistants=v2"},
 )
+
+# simple SQLite user storage
+DB_PATH = os.environ.get("DB_PATH", "app.db")
+
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    with get_db() as db:
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL)"
+        )
+
+
+init_db()
+
+
+def current_user():
+    uid = session.get("user_id")
+    if not uid:
+        return None
+    with get_db() as db:
+        return db.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
+
+
+def login_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not session.get("user_id"):
+            return redirect(url_for("login", next=request.path))
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
+@app.context_processor
+def inject_user():
+    return {"current_user": current_user()}
+
+
+@app.before_request
+def require_login():
+    if request.endpoint in {"login", "register", "static"}:
+        return
+    if not session.get("user_id"):
+        return redirect(url_for("login", next=request.path))
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        if not username or not password:
+            flash("Введите имя пользователя и пароль")
+        else:
+            try:
+                with get_db() as db:
+                    db.execute(
+                        "INSERT INTO users (username, password) VALUES (?, ?)",
+                        (username, generate_password_hash(password)),
+                    )
+                    flash("Регистрация успешна")
+                    return redirect(url_for("login"))
+            except sqlite3.IntegrityError:
+                flash("Пользователь уже существует")
+    return render_template("register.html", title="Регистрация")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        with get_db() as db:
+            user = db.execute(
+                "SELECT * FROM users WHERE username = ?", (username,)
+            ).fetchone()
+        if not user or not check_password_hash(user["password"], password):
+            flash("Неверные учетные данные")
+        else:
+            session["user_id"] = user["id"]
+            next_url = request.args.get("next") or url_for("index")
+            return redirect(next_url)
+    return render_template("login.html", title="Вход")
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.pop("user_id", None)
+    return redirect(url_for("login"))
 
 
 def get_billing_data():

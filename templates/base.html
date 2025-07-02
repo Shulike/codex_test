@@ -56,6 +56,17 @@
         <li class="nav-item"><a href="/assistants" class="nav-link">Ассистенты</a></li>
         <li class="nav-item"><a href="/filesearch" class="nav-link">File Search</a></li>
       </ul>
+      <div class="mt-3">
+        {% if current_user %}
+        <form action="{{ url_for('logout') }}" method="post">
+          <span class="me-2">{{ current_user.username }}</span>
+          <button class="btn btn-outline-light btn-sm">Выйти</button>
+        </form>
+        {% else %}
+        <a href="{{ url_for('login') }}" class="btn btn-outline-light btn-sm me-2">Вход</a>
+        <a href="{{ url_for('register') }}" class="btn btn-outline-light btn-sm">Регистрация</a>
+        {% endif %}
+      </div>
     </nav>
     <main class="col-md-10 p-4 animate__animated animate__fadeIn">
       {% with messages = get_flashed_messages() %}
