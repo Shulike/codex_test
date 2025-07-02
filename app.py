@@ -34,19 +34,25 @@ client = OpenAI(
 def get_billing_data():
     headers = {"Authorization": f"Bearer {openai_api_key}"}
     try:
-        credit = requests.get(
+        credit_resp = requests.get(
             "https://api.openai.com/dashboard/billing/credit_grants",
             headers=headers,
             timeout=10,
-        ).json()
+        )
+        credit = credit_resp.json()
+        if "error" in credit:
+            raise RuntimeError(credit["error"].get("message", "billing error"))
         end = datetime.utcnow().date()
         start = end - timedelta(days=30)
-        usage = requests.get(
+        usage_resp = requests.get(
             "https://api.openai.com/dashboard/billing/usage",
             params={"start_date": start.isoformat(), "end_date": end.isoformat()},
             headers=headers,
             timeout=10,
-        ).json()
+        )
+        usage = usage_resp.json()
+        if "error" in usage:
+            raise RuntimeError(usage["error"].get("message", "billing error"))
         daily = []
         for day in usage.get("daily_costs", []):
             cost = sum(li.get("cost", 0) for li in day.get("line_items", []))
@@ -56,12 +62,14 @@ def get_billing_data():
             "total_usage": usage.get("total_usage", 0) / 100.0,
             "available": credit.get("total_available", 0.0),
         }
-    except Exception:
-        return {"daily": [], "total_usage": 0.0, "available": 0.0}
+    except Exception as e:
+        return {"daily": [], "total_usage": 0.0, "available": 0.0, "error": str(e)}
 
 @app.route('/')
 def index():
     billing = get_billing_data()
+    if billing.get("error"):
+        flash(f"Ошибка получения данных: {billing['error']}")
     return render_template(
         'index.html',
         title='Дашборд',
