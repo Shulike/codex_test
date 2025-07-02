@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <h1>File Search: {{ vector_store.name }}</h1>
-<form action="/filesearch/{{ vector_store.id }}/files/add" method="post" class="mb-3">
+<form action="/filesearch/{{ vector_store.id }}/files/add" method="post" class="mb-3 animate__animated animate__fadeIn">
     <div class="input-group">
         <input type="text" name="file_id" class="form-control" placeholder="ID файла" required>
         <button type="submit" class="btn btn-success">Добавить</button>

@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <h1>Assistants Playground</h1>
-<form action="/generate" method="post" class="mb-3">
+<form action="/generate" method="post" class="mb-3 animate__animated animate__fadeIn">
     <div class="mb-3">
         <label for="prompt" class="form-label">Запрос</label>
         <textarea name="prompt" id="prompt" class="form-control" rows="4">{{ prompt|default('') }}</textarea>

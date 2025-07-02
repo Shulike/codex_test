@@ -10,10 +10,12 @@
 <form action="{{ url_for('reset_assistant_thread', assistant_id=assistant.id) }}" method="post" class="mb-3">
     <button type="submit" class="btn btn-warning">Очистить диалог</button>
 </form>
-<div class="mb-3">
+<div id="messages" class="d-flex flex-column gap-2 mb-3 messages">
 {% for m in messages %}
-    <div class="border rounded p-2 mb-2">
-        <strong>{{ m.role }}:</strong> {{ m.content[0].text.value if m.content else '' }}
+    <div class="d-flex {% if m.role == 'assistant' %}justify-content-end{% endif %}">
+        <div class="message {{ 'assistant' if m.role == 'assistant' else 'user' }} animate__animated animate__fadeIn">
+            {{ m.content[0].text.value if m.content else '' }}
+        </div>
     </div>
 {% endfor %}
 </div>
