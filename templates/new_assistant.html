@@ -32,6 +32,15 @@
             <label class="form-label">Top P</label>
             <input type="number" step="0.01" name="top_p" class="form-control" value="0.15">
         </div>
+        <div class="mb-3">
+            <label class="form-label">File Search</label>
+            <select name="vector_store_id" class="form-select">
+                <option value="">Нет</option>
+            {% for v in vector_stores %}
+                <option value="{{ v.id }}">{{ v.name }}</option>
+            {% endfor %}
+            </select>
+        </div>
         <button type="submit" class="btn btn-primary">Создать</button>
         <a href="/assistants" class="btn btn-secondary">Назад</a>
     </form>
