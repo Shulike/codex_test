@@ -1,5 +1,7 @@
 import os
 import time
+from datetime import datetime, timedelta
+import requests
 from flask import (
     Flask,
     render_template,
@@ -28,9 +30,45 @@ client = OpenAI(
     default_headers={"OpenAI-Beta": "assistants=v2"},
 )
 
+
+def get_billing_data():
+    headers = {"Authorization": f"Bearer {openai_api_key}"}
+    try:
+        credit = requests.get(
+            "https://api.openai.com/dashboard/billing/credit_grants",
+            headers=headers,
+            timeout=10,
+        ).json()
+        end = datetime.utcnow().date()
+        start = end - timedelta(days=30)
+        usage = requests.get(
+            "https://api.openai.com/dashboard/billing/usage",
+            params={"start_date": start.isoformat(), "end_date": end.isoformat()},
+            headers=headers,
+            timeout=10,
+        ).json()
+        daily = []
+        for day in usage.get("daily_costs", []):
+            cost = sum(li.get("cost", 0) for li in day.get("line_items", []))
+            daily.append({"date": day.get("timestamp", "")[:10], "cost": cost})
+        return {
+            "daily": daily,
+            "total_usage": usage.get("total_usage", 0) / 100.0,
+            "available": credit.get("total_available", 0.0),
+        }
+    except Exception:
+        return {"daily": [], "total_usage": 0.0, "available": 0.0}
+
 @app.route('/')
 def index():
-    return render_template('index.html', title='Assistants Playground')
+    billing = get_billing_data()
+    return render_template(
+        'index.html',
+        title='Дашборд',
+        daily=billing['daily'],
+        total_usage=billing['total_usage'],
+        available=billing['available'],
+    )
 
 @app.route('/generate', methods=['POST'])
 def generate():
