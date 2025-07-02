@@ -30,7 +30,7 @@ client = OpenAI(
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', title='Assistants Playground')
 
 @app.route('/generate', methods=['POST'])
 def generate():
@@ -72,6 +72,7 @@ def list_assistants():
     next_page = page_num + 1 if end < total else None
     return render_template(
         'assistants.html',
+        title='Ассистенты',
         assistants=assistants,
         q=query,
         prev_page=prev_page,
@@ -115,7 +116,13 @@ def new_assistant():
             return redirect(url_for('list_assistants'))
         except Exception as e:
             flash(f'Ошибка: {e}')
-    return render_template('new_assistant.html', models=models, default_model=default_model, vector_stores=vector_stores)
+    return render_template(
+        'new_assistant.html',
+        title='Создать ассистента',
+        models=models,
+        default_model=default_model,
+        vector_stores=vector_stores,
+    )
 
 
 @app.route('/assistants/<assistant_id>/edit', methods=['GET', 'POST'])
@@ -169,6 +176,7 @@ def edit_assistant(assistant_id):
 
     return render_template(
         'edit_assistant.html',
+        title='Редактировать ассистента',
         assistant=assistant,
         files=files,
         models=models,
@@ -281,7 +289,10 @@ def test_assistant(assistant_id):
         messages = []
 
     return render_template(
-        'test_assistant.html', assistant=assistant, messages=messages
+        'test_assistant.html',
+        title=f'Тест: {assistant.name}',
+        assistant=assistant,
+        messages=messages,
     )
 
 
@@ -321,6 +332,7 @@ def list_vector_stores():
     next_page = page_num + 1 if end < total else None
     return render_template(
         'vector_stores.html',
+        title='File Search',
         vector_stores=vector_stores,
         q=query,
         prev_page=prev_page,
@@ -342,7 +354,7 @@ def new_vector_store():
             return redirect(url_for('list_vector_stores'))
         except Exception as e:
             flash(f'Ошибка: {e}')
-    return render_template('new_vector_store.html')
+    return render_template('new_vector_store.html', title='Создать File Search')
 
 
 @app.route('/filesearch/<vs_id>')
@@ -353,7 +365,12 @@ def view_vector_store(vs_id):
     except Exception as e:
         flash(f'Ошибка: {e}')
         return redirect(url_for('list_vector_stores'))
-    return render_template('view_vector_store.html', vector_store=vector_store, files=files)
+    return render_template(
+        'view_vector_store.html',
+        title=f'File Search: {vector_store.name}',
+        vector_store=vector_store,
+        files=files,
+    )
 
 
 @app.route('/filesearch/<vs_id>/delete', methods=['POST'])
