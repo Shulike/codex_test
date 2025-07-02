@@ -113,20 +113,21 @@ def edit_assistant(assistant_id):
         top_p = float(request.form.get('top_p', 0.15))
         vector_store_id = request.form.get('vector_store_id') or None
         try:
-            tools = []
-            tool_resources = {}
-            if vector_store_id:
-                tools.append({"type": "file_search"})
-                tool_resources = {"file_search": {"vector_store_ids": [vector_store_id]}}
-            client.beta.assistants.update(
-                assistant_id,
+            update_kwargs = dict(
                 name=name,
                 instructions=instructions,
                 model=model,
                 temperature=temperature,
                 top_p=top_p,
-                tools=tools,
-                tool_resources=tool_resources,
+            )
+            if vector_store_id:
+                update_kwargs["tools"] = [{"type": "file_search"}]
+                update_kwargs["tool_resources"] = {
+                    "file_search": {"vector_store_ids": [vector_store_id]}
+                }
+            client.beta.assistants.update(
+                assistant_id,
+                **update_kwargs,
             )
             flash('Ассистент обновлён')
             return redirect(url_for('edit_assistant', assistant_id=assistant_id))
