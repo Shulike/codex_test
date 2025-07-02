@@ -98,7 +98,11 @@ def new_assistant():
 def edit_assistant(assistant_id):
     try:
         assistant = client.beta.assistants.retrieve(assistant_id)
-        files = client.beta.assistants.files.list(assistant_id).data
+        resources = assistant.tool_resources
+        if resources and resources.code_interpreter and resources.code_interpreter.file_ids:
+            files = resources.code_interpreter.file_ids
+        else:
+            files = []
         models = [m.id for m in client.models.list().data if m.id.startswith('gpt')]
         vector_stores = client.vector_stores.list().data
     except Exception as e:
@@ -163,7 +167,22 @@ def delete_assistant(assistant_id):
 def add_file(assistant_id):
     file_id = request.form.get('file_id')
     try:
-        client.beta.assistants.files.create(assistant_id, file_id=file_id)
+        assistant = client.beta.assistants.retrieve(assistant_id)
+        resources = assistant.tool_resources
+        file_ids = []
+        if resources and resources.code_interpreter and resources.code_interpreter.file_ids:
+            file_ids = list(resources.code_interpreter.file_ids)
+        if file_id not in file_ids:
+            file_ids.append(file_id)
+        tool_resources = {}
+        if file_ids:
+            tool_resources["code_interpreter"] = {"file_ids": file_ids}
+        if resources and resources.file_search and resources.file_search.vector_store_ids:
+            tool_resources["file_search"] = {"vector_store_ids": resources.file_search.vector_store_ids}
+        client.beta.assistants.update(
+            assistant_id,
+            tool_resources=tool_resources,
+        )
         flash('Файл добавлен')
     except Exception as e:
         flash(f'Ошибка: {e}')
@@ -173,7 +192,20 @@ def add_file(assistant_id):
 @app.route('/assistants/<assistant_id>/files/<file_id>/delete', methods=['POST'])
 def delete_file(assistant_id, file_id):
     try:
-        client.beta.assistants.files.delete(assistant_id, file_id)
+        assistant = client.beta.assistants.retrieve(assistant_id)
+        resources = assistant.tool_resources
+        file_ids = []
+        if resources and resources.code_interpreter and resources.code_interpreter.file_ids:
+            file_ids = [fid for fid in resources.code_interpreter.file_ids if fid != file_id]
+        tool_resources = {}
+        if file_ids:
+            tool_resources["code_interpreter"] = {"file_ids": file_ids}
+        if resources and resources.file_search and resources.file_search.vector_store_ids:
+            tool_resources["file_search"] = {"vector_store_ids": resources.file_search.vector_store_ids}
+        client.beta.assistants.update(
+            assistant_id,
+            tool_resources=tool_resources,
+        )
         flash('Файл удалён')
     except Exception as e:
         flash(f'Ошибка: {e}')
