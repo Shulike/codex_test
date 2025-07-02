@@ -34,6 +34,15 @@ client = OpenAI(
 def get_billing_data():
     headers = {"Authorization": f"Bearer {openai_api_key}"}
     try:
+        sub_resp = requests.get(
+            "https://api.openai.com/dashboard/billing/subscription",
+            headers=headers,
+            timeout=10,
+        )
+        sub = sub_resp.json()
+        if "error" in sub:
+            raise RuntimeError(sub["error"].get("message", "billing error"))
+
         credit_resp = requests.get(
             "https://api.openai.com/dashboard/billing/credit_grants",
             headers=headers,
@@ -57,10 +66,17 @@ def get_billing_data():
         for day in usage.get("daily_costs", []):
             cost = sum(li.get("cost", 0) for li in day.get("line_items", []))
             daily.append({"date": day.get("timestamp", "")[:10], "cost": cost})
+
+        total_usage = usage.get("total_usage", 0) / 100.0
+        hard_limit = sub.get("hard_limit_usd", 0.0)
+        available = credit.get("total_available", 0.0)
+        if available == 0.0 and hard_limit:
+            available = max(hard_limit - total_usage, 0.0)
+
         return {
             "daily": daily,
-            "total_usage": usage.get("total_usage", 0) / 100.0,
-            "available": credit.get("total_available", 0.0),
+            "total_usage": total_usage,
+            "available": available,
         }
     except Exception as e:
         return {"daily": [], "total_usage": 0.0, "available": 0.0, "error": str(e)}
