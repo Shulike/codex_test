@@ -51,8 +51,30 @@ def generate():
 
 @app.route('/assistants')
 def list_assistants():
-    assistants = client.beta.assistants.list().data
-    return render_template('assistants.html', assistants=assistants)
+    query = request.args.get('q', '').strip()
+    page_num = int(request.args.get('page', 1))
+    per_page = 10
+    try:
+        all_items = list(client.beta.assistants.list(limit=100))
+    except Exception as e:
+        flash(f'Ошибка: {e}')
+        all_items = []
+    if query:
+        ql = query.lower()
+        all_items = [a for a in all_items if ql in (a.name or '').lower() or ql in a.id]
+    total = len(all_items)
+    start = (page_num - 1) * per_page
+    end = start + per_page
+    assistants = all_items[start:end]
+    prev_page = page_num - 1 if start > 0 else None
+    next_page = page_num + 1 if end < total else None
+    return render_template(
+        'assistants.html',
+        assistants=assistants,
+        q=query,
+        prev_page=prev_page,
+        next_page=next_page,
+    )
 
 
 @app.route('/assistants/new', methods=['GET', 'POST'])
@@ -214,12 +236,30 @@ def delete_file(assistant_id, file_id):
 
 @app.route('/filesearch')
 def list_vector_stores():
+    query = request.args.get('q', '').strip()
+    page_num = int(request.args.get('page', 1))
+    per_page = 10
     try:
-        vector_stores = client.vector_stores.list().data
+        all_items = list(client.vector_stores.list(limit=100))
     except Exception as e:
         flash(f'Ошибка: {e}')
-        vector_stores = []
-    return render_template('vector_stores.html', vector_stores=vector_stores)
+        all_items = []
+    if query:
+        ql = query.lower()
+        all_items = [v for v in all_items if ql in (v.name or '').lower() or ql in v.id]
+    total = len(all_items)
+    start = (page_num - 1) * per_page
+    end = start + per_page
+    vector_stores = all_items[start:end]
+    prev_page = page_num - 1 if start > 0 else None
+    next_page = page_num + 1 if end < total else None
+    return render_template(
+        'vector_stores.html',
+        vector_stores=vector_stores,
+        q=query,
+        prev_page=prev_page,
+        next_page=next_page,
+    )
 
 
 @app.route('/filesearch/new', methods=['GET', 'POST'])
