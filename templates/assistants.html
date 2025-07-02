@@ -28,8 +28,8 @@
                 <td>{{ a.temperature|default(0.30) }}</td>
                 <td>{{ a.top_p|default(0.15) }}</td>
                 <td>
-                    <a href="/assistants/{{ a.id }}/edit" class="btn btn-primary btn-sm">Редактировать</a>
-                    <form action="/assistants/{{ a.id }}/delete" method="post" style="display:inline-block" onsubmit="return confirm('Удалить?');">
+                    <a href="{{ url_for('edit_assistant', assistant_id=a.id) }}" class="btn btn-primary btn-sm">Редактировать</a>
+                    <form action="{{ url_for('delete_assistant', assistant_id=a.id) }}" method="post" style="display:inline-block" onsubmit="return confirm('Удалить?');">
                         <button type="submit" class="btn btn-danger btn-sm">Удалить</button>
                     </form>
                 </td>
