@@ -56,11 +56,33 @@ def get_db():
     return conn
 
 
+def get_setting(key, default=None):
+    with get_db() as db:
+        row = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+        return row['value'] if row else default
+
+
+def set_setting(key, value):
+    with get_db() as db:
+        if db.execute('SELECT 1 FROM settings WHERE key=?', (key,)).fetchone():
+            db.execute('UPDATE settings SET value=? WHERE key=?', (value, key))
+        else:
+            db.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, value))
+
 def init_db():
     with get_db() as db:
         db.execute(
             "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL)"
         )
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"
+        )
+        # default: registration allowed
+        if not db.execute("SELECT 1 FROM settings WHERE key = ?", ("registration_open",)).fetchone():
+            db.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?)",
+                ("registration_open", "1"),
+            )
 
 
 init_db()
@@ -86,7 +108,10 @@ def login_required(f):
 
 @app.context_processor
 def inject_user():
-    return {"current_user": current_user()}
+    return {
+        "current_user": current_user(),
+        "registration_open": get_setting("registration_open", "1") == "1",
+    }
 
 
 @app.before_request
@@ -99,6 +124,9 @@ def require_login():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    if get_setting("registration_open", "1") != "1":
+        flash("Регистрация закрыта администратором")
+        return redirect(url_for("login"))
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
@@ -617,6 +645,30 @@ def delete_vector_store_file(vs_id, file_id):
     except Exception as e:
         flash_error(f'Ошибка: {e}', e)
     return redirect(url_for('view_vector_store', vs_id=vs_id))
+
+
+@app.route('/settings', methods=['GET', 'POST'])
+@login_required
+def site_settings():
+    if request.method == 'POST':
+        if 'change_password' in request.form:
+            current_password = request.form.get('current_password', '')
+            new_password = request.form.get('new_password', '')
+            with get_db() as db:
+                user = db.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+                if not check_password_hash(user['password'], current_password):
+                    flash('Неверный текущий пароль')
+                elif not new_password:
+                    flash('Новый пароль не может быть пустым')
+                else:
+                    db.execute('UPDATE users SET password=? WHERE id=?', (generate_password_hash(new_password), user['id']))
+                    flash('Пароль обновлён')
+        elif 'update_registration' in request.form:
+            reg_open = request.form.get('registration_open') == 'on'
+            set_setting('registration_open', '1' if reg_open else '0')
+            flash('Настройки обновлены')
+    reg_open = get_setting('registration_open', '1') == '1'
+    return render_template('settings.html', title='Настройка сайта', registration_open=reg_open)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
