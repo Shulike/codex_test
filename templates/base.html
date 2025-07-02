@@ -25,6 +25,7 @@
     </style>
 </head>
 <body>
+<div id="toast-container" class="toast-container position-fixed top-0 end-0 p-3" style="z-index:1055"></div>
 <div class="container-fluid">
   <div class="row">
     <nav class="col-md-2 sidebar bg-light p-3">
@@ -38,13 +39,26 @@
     <main class="col-md-10 p-4 animate__animated animate__fadeIn">
       {% with messages = get_flashed_messages() %}
         {% if messages %}
-          <div class="alert alert-warning">{{ messages[0] }}</div>
+          <script>
+            window.addEventListener('DOMContentLoaded', () => {
+              const msgs = {{ messages|tojson }};
+              const container = document.getElementById('toast-container');
+              msgs.forEach(m => {
+                const t = document.createElement('div');
+                t.className = 'toast align-items-center text-bg-warning border-0 mb-2';
+                t.innerHTML = `<div class="d-flex"><div class="toast-body">${m}</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+                container.appendChild(t);
+                new bootstrap.Toast(t, {delay: 5000}).show();
+              });
+            });
+          </script>
         {% endif %}
       {% endwith %}
       {% block content %}{% endblock %}
     </main>
   </div>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
   const msgBox = document.getElementById('messages');
   if (msgBox) {

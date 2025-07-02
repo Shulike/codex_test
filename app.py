@@ -11,6 +11,7 @@ from flask import (
     flash,
     session,
 )
+import logging
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -18,6 +19,18 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'change-me')
+
+# configure basic logging
+logging.basicConfig(level=logging.INFO)
+
+
+def flash_error(message, exc=None):
+    """Log an error and flash it for the UI."""
+    if exc:
+        app.logger.exception(message)
+    else:
+        app.logger.error(message)
+    flash(message)
 
 openai_api_key = os.environ.get('OPENAI_API_KEY')
 
@@ -85,11 +98,11 @@ def get_billing_data():
 def index():
     billing = get_billing_data()
     if billing.get("error"):
-        flash(f"Ошибка получения данных: {billing['error']}")
+        flash_error(f"Ошибка получения данных: {billing['error']}")
     try:
         assistants = client.beta.assistants.list(limit=100).data
     except Exception as e:
-        flash(f"Ошибка: {e}")
+        flash_error(f"Ошибка: {e}", e)
         assistants = []
     return render_template(
         'index.html',
@@ -132,10 +145,11 @@ def generate():
 
     billing = get_billing_data()
     if billing.get('error'):
-        flash(f"Ошибка получения данных: {billing['error']}")
+        flash_error(f"Ошибка получения данных: {billing['error']}")
     try:
         assistants = client.beta.assistants.list(limit=100).data
-    except Exception:
+    except Exception as e:
+        flash_error(f"Ошибка: {e}", e)
         assistants = []
 
     return render_template(
@@ -159,7 +173,7 @@ def list_assistants():
     try:
         all_items = list(client.beta.assistants.list(limit=100))
     except Exception as e:
-        flash(f'Ошибка: {e}')
+        flash_error(f'Ошибка: {e}', e)
         all_items = []
     if query:
         ql = query.lower()
@@ -186,7 +200,8 @@ def new_assistant():
     try:
         models = [m.id for m in client.models.list().data if m.id.startswith('gpt')]
         vector_stores = client.vector_stores.list().data
-    except Exception:
+    except Exception as e:
+        flash_error(f'Ошибка: {e}', e)
         models = ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo-1106']
         vector_stores = []
 
@@ -215,7 +230,7 @@ def new_assistant():
             flash('Ассистент создан')
             return redirect(url_for('list_assistants'))
         except Exception as e:
-            flash(f'Ошибка: {e}')
+            flash_error(f'Ошибка: {e}', e)
     return render_template(
         'new_assistant.html',
         title='Создать ассистента',
@@ -237,7 +252,7 @@ def edit_assistant(assistant_id):
         models = [m.id for m in client.models.list().data if m.id.startswith('gpt')]
         vector_stores = client.vector_stores.list().data
     except Exception as e:
-        flash(f'Ошибка: {e}')
+        flash_error(f'Ошибка: {e}', e)
         return redirect(url_for('list_assistants'))
 
     if request.method == 'POST':
@@ -267,7 +282,7 @@ def edit_assistant(assistant_id):
             flash('Ассистент обновлён')
             return redirect(url_for('edit_assistant', assistant_id=assistant_id))
         except Exception as e:
-            flash(f'Ошибка: {e}')
+            flash_error(f'Ошибка: {e}', e)
 
     try:
         selected_vector_store = assistant.tool_resources.file_search.vector_store_ids[0]
@@ -291,7 +306,7 @@ def delete_assistant(assistant_id):
         client.beta.assistants.delete(assistant_id)
         flash('Ассистент удалён')
     except Exception as e:
-        flash(f'Ошибка: {e}')
+        flash_error(f'Ошибка: {e}', e)
     return redirect(url_for('list_assistants'))
 
 
@@ -317,7 +332,7 @@ def add_file(assistant_id):
         )
         flash('Файл добавлен')
     except Exception as e:
-        flash(f'Ошибка: {e}')
+        flash_error(f'Ошибка: {e}', e)
     return redirect(url_for('edit_assistant', assistant_id=assistant_id))
 
 
@@ -340,7 +355,7 @@ def delete_file(assistant_id, file_id):
         )
         flash('Файл удалён')
     except Exception as e:
-        flash(f'Ошибка: {e}')
+        flash_error(f'Ошибка: {e}', e)
     return redirect(url_for('edit_assistant', assistant_id=assistant_id))
 
 
@@ -372,12 +387,12 @@ def test_assistant(assistant_id):
                         run.id, thread_id=thread_id
                     )
             except Exception as e:
-                flash(f'Ошибка: {e}')
+                flash_error(f'Ошибка: {e}', e)
 
     try:
         assistant = client.beta.assistants.retrieve(assistant_id)
     except Exception as e:
-        flash(f'Ошибка: {e}')
+        flash_error(f'Ошибка: {e}', e)
         return redirect(url_for('list_assistants'))
 
     try:
@@ -385,7 +400,7 @@ def test_assistant(assistant_id):
             thread_id, order='asc'
         ).data
     except Exception as e:
-        flash(f'Ошибка: {e}')
+        flash_error(f'Ошибка: {e}', e)
         messages = []
 
     return render_template(
@@ -419,7 +434,7 @@ def list_vector_stores():
     try:
         all_items = list(client.vector_stores.list(limit=100))
     except Exception as e:
-        flash(f'Ошибка: {e}')
+        flash_error(f'Ошибка: {e}', e)
         all_items = []
     if query:
         ql = query.lower()
@@ -453,7 +468,7 @@ def new_vector_store():
             flash('File Search создан')
             return redirect(url_for('list_vector_stores'))
         except Exception as e:
-            flash(f'Ошибка: {e}')
+            flash_error(f'Ошибка: {e}', e)
     return render_template('new_vector_store.html', title='Создать File Search')
 
 
@@ -463,7 +478,7 @@ def view_vector_store(vs_id):
         vector_store = client.vector_stores.retrieve(vs_id)
         files = client.vector_stores.files.list(vs_id).data
     except Exception as e:
-        flash(f'Ошибка: {e}')
+        flash_error(f'Ошибка: {e}', e)
         return redirect(url_for('list_vector_stores'))
     return render_template(
         'view_vector_store.html',
@@ -479,7 +494,7 @@ def delete_vector_store(vs_id):
         client.vector_stores.delete(vs_id)
         flash('File Search удалён')
     except Exception as e:
-        flash(f'Ошибка: {e}')
+        flash_error(f'Ошибка: {e}', e)
     return redirect(url_for('list_vector_stores'))
 
 
@@ -490,7 +505,7 @@ def add_vector_store_file(vs_id):
         client.vector_stores.files.create(vs_id, file_id=file_id)
         flash('Файл добавлен')
     except Exception as e:
-        flash(f'Ошибка: {e}')
+        flash_error(f'Ошибка: {e}', e)
     return redirect(url_for('view_vector_store', vs_id=vs_id))
 
 
@@ -500,7 +515,7 @@ def delete_vector_store_file(vs_id, file_id):
         client.vector_stores.files.delete(vs_id, file_id)
         flash('Файл удалён')
     except Exception as e:
-        flash(f'Ошибка: {e}')
+        flash_error(f'Ошибка: {e}', e)
     return redirect(url_for('view_vector_store', vs_id=vs_id))
 
 if __name__ == '__main__':
