@@ -472,7 +472,7 @@ async def api_get_assistant(assistant_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.post('/api/threads')
+@app.post('/api/create_thread')
 async def api_create_thread():
     """Create a new thread."""
     try:

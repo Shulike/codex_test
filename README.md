@@ -78,7 +78,7 @@
 - `POST /api/vector_stores/{id}/files` — добавить файл в хранилище.
 - `DELETE /api/vector_stores/{id}/files/{file_id}` — удалить файл из хранилища.
 - `GET /api/models` — список доступных GPT‑моделей.
-- `POST /api/threads` — создать новый thread, возвращает `thread_id`.
+ - `POST /api/create_thread` — создать новый thread, возвращает `thread_id`.
 - `GET /api/threads/{id}` — получить данные треда.
 - `DELETE /api/threads/{id}` — удалить тред.
 - `POST /api/threads/{id}/messages` — добавить сообщение пользователя.
