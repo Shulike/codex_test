@@ -60,39 +60,40 @@
 
 ## API
 
-Помимо веб-интерфейса можно обращаться к приложению программно. Доступные
-эндпоинты:
+Помимо веб-интерфейса можно обращаться к приложению программно. Все
+эндпоинты начинаются с префикса `/bot`, как и в Telegram‑боте.
+Доступные маршруты:
 
-- `GET /api/assistants` — список ассистентов.
-- `GET /api/assistants/{id}` — получить данные одного ассистента.
-- `POST /api/assistants` — создать ассистента.
-- `PUT /api/assistants/{id}` — обновить ассистента.
-- `DELETE /api/assistants/{id}` — удалить ассистента.
-- `POST /api/assistants/{id}/files` — прикрепить файл к ассистенту.
-- `DELETE /api/assistants/{id}/files/{file_id}` — удалить файл.
-- `GET /api/vector_stores` — список File Search хранилищ.
-- `POST /api/vector_stores` — создать хранилище.
-- `GET /api/vector_stores/{id}` — получить одно хранилище.
-- `DELETE /api/vector_stores/{id}` — удалить хранилище.
-- `GET /api/vector_stores/{id}/files` — список файлов хранилища.
-- `POST /api/vector_stores/{id}/files` — добавить файл в хранилище.
-- `DELETE /api/vector_stores/{id}/files/{file_id}` — удалить файл из хранилища.
-- `GET /api/models` — список доступных GPT‑моделей.
-- `POST /api/create_thread` — создать новый thread, возвращает `thread_id`.
-- `GET /api/threads/{id}` — получить данные треда.
-- `DELETE /api/threads/{id}` — удалить тред.
-- `POST /api/threads/{id}/messages` — добавить сообщение пользователя.
-- `GET /api/threads/{id}/messages` — получить сообщения треда.
-- `POST /api/run` — запустить ассистента в треде. Требуются поля
+- `GET /bot/assistants` — список ассистентов.
+- `GET /bot/assistants/{id}` — получить данные одного ассистента.
+- `POST /bot/assistants` — создать ассистента.
+- `PUT /bot/assistants/{id}` — обновить ассистента.
+- `DELETE /bot/assistants/{id}` — удалить ассистента.
+- `POST /bot/assistants/{id}/files` — прикрепить файл к ассистенту.
+- `DELETE /bot/assistants/{id}/files/{file_id}` — удалить файл.
+- `GET /bot/vector_stores` — список File Search хранилищ.
+- `POST /bot/vector_stores` — создать хранилище.
+- `GET /bot/vector_stores/{id}` — получить одно хранилище.
+- `DELETE /bot/vector_stores/{id}` — удалить хранилище.
+- `GET /bot/vector_stores/{id}/files` — список файлов хранилища.
+- `POST /bot/vector_stores/{id}/files` — добавить файл в хранилище.
+- `DELETE /bot/vector_stores/{id}/files/{file_id}` — удалить файл из хранилища.
+- `GET /bot/models` — список доступных GPT‑моделей.
+- `POST /bot/create_thread` — создать новый thread, возвращает `thread_id`.
+- `GET /bot/threads/{id}` — получить данные треда.
+- `DELETE /bot/threads/{id}` — удалить тред.
+- `POST /bot/threads/{id}/messages` — добавить сообщение пользователя.
+- `GET /bot/threads/{id}/messages` — получить сообщения треда.
+- `POST /bot/run` — запустить ассистента в треде. Требуются поля
   `thread_id` и `assistant_id`.
-- `GET /api/thread_status/{run_id}` — статус запущенного треда. В
+- `GET /bot/thread_status/{run_id}` — статус запущенного треда. В
   параметре `thread_id` передаётся идентификатор треда.
-- `POST /api/threads/{id}/runs/{run_id}/cancel` — отменить выполнение.
-- `POST /api/assistants/{id}/chat` — задать вопрос ассистенту в новом треде.
-- `GET /api/billing` — данные баланса и расходов.
-- `POST /api/register` — регистрация пользователя (если разрешена).
-- `POST /api/login` — вход в систему.
-- `POST /api/logout` — выход из системы.
-- `GET /api/settings` — текущие настройки сайта.
-- `PUT /api/settings` — обновить настройку регистрации.
-- `PUT /api/password` — сменить пароль текущего пользователя.
+- `POST /bot/threads/{id}/runs/{run_id}/cancel` — отменить выполнение.
+- `POST /bot/assistants/{id}/chat` — задать вопрос ассистенту в новом треде.
+- `GET /bot/billing` — данные баланса и расходов.
+- `POST /bot/register` — регистрация пользователя (если разрешена).
+- `POST /bot/login` — вход в систему.
+- `POST /bot/logout` — выход из системы.
+- `GET /bot/settings` — текущие настройки сайта.
+- `PUT /bot/settings` — обновить настройку регистрации.
+- `PUT /bot/password` — сменить пароль текущего пользователя.

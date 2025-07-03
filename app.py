@@ -452,7 +452,7 @@ async def delete_vector_store_file(request: Request, store_id: str, file_id: str
 # ----------------------- API endpoints -----------------------
 
 # Assistants list
-@app.get('/api/assistants')
+@app.get('/bot/assistants')
 async def api_assistants():
     """Return a list of all assistants."""
     try:
@@ -462,7 +462,7 @@ async def api_assistants():
         raise HTTPException(500, str(e))
 
 
-@app.get('/api/assistants/{assistant_id}')
+@app.get('/bot/assistants/{assistant_id}')
 async def api_get_assistant(assistant_id: str):
     """Retrieve a single assistant."""
     try:
@@ -472,7 +472,7 @@ async def api_get_assistant(assistant_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.post('/api/create_thread')
+@app.post('/bot/create_thread')
 async def api_create_thread():
     """Create a new thread."""
     try:
@@ -482,7 +482,7 @@ async def api_create_thread():
         raise HTTPException(500, str(e))
 
 
-@app.post('/api/threads/{thread_id}/messages')
+@app.post('/bot/threads/{thread_id}/messages')
 async def api_add_message(thread_id: str, content: str = Form(...)):
     """Add a user message to a thread."""
     try:
@@ -494,7 +494,7 @@ async def api_add_message(thread_id: str, content: str = Form(...)):
         raise HTTPException(500, str(e))
 
 
-@app.get('/api/threads/{thread_id}/messages')
+@app.get('/bot/threads/{thread_id}/messages')
 async def api_list_messages(thread_id: str):
     """List messages for a thread."""
     try:
@@ -504,7 +504,7 @@ async def api_list_messages(thread_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.post('/api/run')
+@app.post('/bot/run')
 async def api_run(thread_id: str = Form(...), assistant_id: str = Form(...)):
     """Start a run for a thread with the given assistant."""
     try:
@@ -516,7 +516,7 @@ async def api_run(thread_id: str = Form(...), assistant_id: str = Form(...)):
         raise HTTPException(500, str(e))
 
 
-@app.get('/api/thread_status/{run_id}')
+@app.get('/bot/thread_status/{run_id}')
 async def api_thread_status(run_id: str, thread_id: str):
     """Get status information for a run."""
     try:
@@ -526,7 +526,7 @@ async def api_thread_status(run_id: str, thread_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.post('/api/threads/{thread_id}/runs/{run_id}/cancel')
+@app.post('/bot/threads/{thread_id}/runs/{run_id}/cancel')
 async def api_cancel_run(thread_id: str, run_id: str):
     """Cancel a running thread."""
     try:
@@ -537,7 +537,7 @@ async def api_cancel_run(thread_id: str, run_id: str):
 
 # ---------- Additional management endpoints ----------
 
-@app.get('/api/models')
+@app.get('/bot/models')
 async def api_list_models():
     """Return available GPT models."""
     try:
@@ -546,7 +546,7 @@ async def api_list_models():
         raise HTTPException(500, str(e))
 
 
-@app.post('/api/assistants')
+@app.post('/bot/assistants')
 async def api_create_assistant(
     name: str = Form(...),
     instructions: str = Form(''),
@@ -575,7 +575,7 @@ async def api_create_assistant(
         raise HTTPException(500, str(e))
 
 
-@app.put('/api/assistants/{assistant_id}')
+@app.put('/bot/assistants/{assistant_id}')
 async def api_update_assistant(
     assistant_id: str,
     name: str = Form(None),
@@ -609,7 +609,7 @@ async def api_update_assistant(
         raise HTTPException(500, str(e))
 
 
-@app.delete('/api/assistants/{assistant_id}')
+@app.delete('/bot/assistants/{assistant_id}')
 async def api_delete_assistant(assistant_id: str):
     """Delete an assistant."""
     try:
@@ -619,7 +619,7 @@ async def api_delete_assistant(assistant_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.post('/api/assistants/{assistant_id}/files')
+@app.post('/bot/assistants/{assistant_id}/files')
 async def api_add_assistant_file(assistant_id: str, file_id: str = Form(...)):
     """Attach a file to an assistant's code interpreter."""
     try:
@@ -634,7 +634,7 @@ async def api_add_assistant_file(assistant_id: str, file_id: str = Form(...)):
         raise HTTPException(500, str(e))
 
 
-@app.delete('/api/assistants/{assistant_id}/files/{file_id}')
+@app.delete('/bot/assistants/{assistant_id}/files/{file_id}')
 async def api_delete_assistant_file(assistant_id: str, file_id: str):
     """Remove a file from an assistant."""
     try:
@@ -650,7 +650,7 @@ async def api_delete_assistant_file(assistant_id: str, file_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.get('/api/vector_stores')
+@app.get('/bot/vector_stores')
 async def api_vector_stores():
     """List File Search stores."""
     try:
@@ -660,7 +660,7 @@ async def api_vector_stores():
         raise HTTPException(500, str(e))
 
 
-@app.post('/api/vector_stores')
+@app.post('/bot/vector_stores')
 async def api_create_vector_store(name: str = Form(...), file_id: str = Form('')):
     """Create a new vector store."""
     params = {'name': name}
@@ -673,7 +673,7 @@ async def api_create_vector_store(name: str = Form(...), file_id: str = Form('')
         raise HTTPException(500, str(e))
 
 
-@app.get('/api/vector_stores/{store_id}')
+@app.get('/bot/vector_stores/{store_id}')
 async def api_get_vector_store(store_id: str):
     """Retrieve a vector store."""
     try:
@@ -683,7 +683,7 @@ async def api_get_vector_store(store_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.delete('/api/vector_stores/{store_id}')
+@app.delete('/bot/vector_stores/{store_id}')
 async def api_delete_vector_store(store_id: str):
     """Delete a vector store."""
     try:
@@ -693,7 +693,7 @@ async def api_delete_vector_store(store_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.get('/api/vector_stores/{store_id}/files')
+@app.get('/bot/vector_stores/{store_id}/files')
 async def api_list_vector_store_files(store_id: str):
     """List files inside a vector store."""
     try:
@@ -703,7 +703,7 @@ async def api_list_vector_store_files(store_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.post('/api/vector_stores/{store_id}/files')
+@app.post('/bot/vector_stores/{store_id}/files')
 async def api_add_vector_store_file_api(store_id: str, file_id: str = Form(...)):
     """Add a file to a vector store."""
     try:
@@ -713,7 +713,7 @@ async def api_add_vector_store_file_api(store_id: str, file_id: str = Form(...))
         raise HTTPException(500, str(e))
 
 
-@app.delete('/api/vector_stores/{store_id}/files/{file_id}')
+@app.delete('/bot/vector_stores/{store_id}/files/{file_id}')
 async def api_delete_vector_store_file_api(store_id: str, file_id: str):
     """Remove a file from a vector store."""
     try:
@@ -723,7 +723,7 @@ async def api_delete_vector_store_file_api(store_id: str, file_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.get('/api/threads/{thread_id}')
+@app.get('/bot/threads/{thread_id}')
 async def api_get_thread(thread_id: str):
     """Retrieve a thread."""
     try:
@@ -733,7 +733,7 @@ async def api_get_thread(thread_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.delete('/api/threads/{thread_id}')
+@app.delete('/bot/threads/{thread_id}')
 async def api_delete_thread(thread_id: str):
     """Delete a thread and its messages."""
     try:
@@ -745,13 +745,13 @@ async def api_delete_thread(thread_id: str):
 
 # ----------- Additional utility API endpoints -----------
 
-@app.get('/api/billing')
+@app.get('/bot/billing')
 async def api_billing():
     """Return billing information used on the dashboard."""
     return get_billing_data()
 
 
-@app.post('/api/register')
+@app.post('/bot/register')
 async def api_register(username: str = Form(...), password: str = Form(...)):
     """Register a new user if registration is open."""
     if get_setting('registration_open', '1') != '1':
@@ -767,7 +767,7 @@ async def api_register(username: str = Form(...), password: str = Form(...)):
             raise HTTPException(409, 'Пользователь уже существует')
 
 
-@app.post('/api/login')
+@app.post('/bot/login')
 async def api_login_endpoint(
     request: Request, username: str = Form(...), password: str = Form(...)
 ):
@@ -782,14 +782,14 @@ async def api_login_endpoint(
     return {'logged_in': username}
 
 
-@app.post('/api/logout')
+@app.post('/bot/logout')
 async def api_logout_endpoint(request: Request):
     """Log out the current user."""
     request.session.pop('user_id', None)
     return {'logged_out': True}
 
 
-@app.get('/api/settings')
+@app.get('/bot/settings')
 async def api_get_settings():
     """Return site settings."""
     return {
@@ -797,7 +797,7 @@ async def api_get_settings():
     }
 
 
-@app.put('/api/settings')
+@app.put('/bot/settings')
 async def api_update_settings(registration_open: str = Form(None)):
     """Update the registration setting."""
     if registration_open is not None:
@@ -808,7 +808,7 @@ async def api_update_settings(registration_open: str = Form(None)):
     return {'registration_open': get_setting('registration_open', '1') == '1'}
 
 
-@app.put('/api/password')
+@app.put('/bot/password')
 async def api_change_password(
     request: Request,
     current_password: str = Form(...),
@@ -829,7 +829,7 @@ async def api_change_password(
     return {'updated': True}
 
 
-@app.post('/api/assistants/{assistant_id}/chat')
+@app.post('/bot/assistants/{assistant_id}/chat')
 async def api_assistant_chat(assistant_id: str, message: str = Form(...)):
     """Send one message to an assistant in a new temporary thread."""
     try:
