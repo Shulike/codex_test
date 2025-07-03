@@ -535,6 +535,213 @@ async def api_cancel_run(thread_id: str, run_id: str):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+# ---------- Additional management endpoints ----------
+
+@app.get('/api/models')
+async def api_list_models():
+    """Return available GPT models."""
+    try:
+        return {'models': list_gpt_models()}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post('/api/assistants')
+async def api_create_assistant(
+    name: str = Form(...),
+    instructions: str = Form(''),
+    model: str = Form('gpt-4o-mini'),
+    temperature: float = Form(0.30),
+    top_p: float = Form(0.15),
+    vector_store_id: str = Form('')
+):
+    """Create a new assistant."""
+    params = {
+        'name': name,
+        'instructions': instructions,
+        'model': model,
+        'temperature': temperature,
+        'top_p': top_p,
+    }
+    tool_resources = {}
+    if vector_store_id:
+        tool_resources['file_search'] = {'vector_store_ids': [vector_store_id]}
+    if tool_resources:
+        params['tool_resources'] = tool_resources
+    try:
+        assistant = client.beta.assistants.create(**params)
+        return assistant.model_dump()
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.put('/api/assistants/{assistant_id}')
+async def api_update_assistant(
+    assistant_id: str,
+    name: str = Form(None),
+    instructions: str = Form(None),
+    model: str = Form(None),
+    temperature: float = Form(None),
+    top_p: float = Form(None),
+    vector_store_id: str = Form(None)
+):
+    """Update an existing assistant."""
+    params = {}
+    if name is not None:
+        params['name'] = name
+    if instructions is not None:
+        params['instructions'] = instructions
+    if model is not None:
+        params['model'] = model
+    if temperature is not None:
+        params['temperature'] = temperature
+    if top_p is not None:
+        params['top_p'] = top_p
+    if vector_store_id is not None:
+        params['tool_resources'] = (
+            {'file_search': {'vector_store_ids': [vector_store_id]}}
+            if vector_store_id else {}
+        )
+    try:
+        assistant = client.beta.assistants.update(assistant_id, **params)
+        return assistant.model_dump()
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.delete('/api/assistants/{assistant_id}')
+async def api_delete_assistant(assistant_id: str):
+    """Delete an assistant."""
+    try:
+        client.beta.assistants.delete(assistant_id)
+        return {'deleted': assistant_id}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post('/api/assistants/{assistant_id}/files')
+async def api_add_assistant_file(assistant_id: str, file_id: str = Form(...)):
+    """Attach a file to an assistant's code interpreter."""
+    try:
+        assistant = client.beta.assistants.retrieve(assistant_id)
+        tr = assistant.model_dump().get('tool_resources') or {}
+        files = tr.get('code_interpreter', {}).get('file_ids', [])
+        files.append(file_id)
+        tr['code_interpreter'] = {'file_ids': files}
+        client.beta.assistants.update(assistant_id, tool_resources=tr)
+        return {'file_ids': files}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.delete('/api/assistants/{assistant_id}/files/{file_id}')
+async def api_delete_assistant_file(assistant_id: str, file_id: str):
+    """Remove a file from an assistant."""
+    try:
+        assistant = client.beta.assistants.retrieve(assistant_id)
+        tr = assistant.model_dump().get('tool_resources') or {}
+        files = tr.get('code_interpreter', {}).get('file_ids', [])
+        if file_id in files:
+            files.remove(file_id)
+        tr['code_interpreter'] = {'file_ids': files}
+        client.beta.assistants.update(assistant_id, tool_resources=tr)
+        return {'file_ids': files}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get('/api/vector_stores')
+async def api_vector_stores():
+    """List File Search stores."""
+    try:
+        stores = client.vector_stores.list(limit=100).data
+        return {'vector_stores': [s.model_dump() for s in stores]}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post('/api/vector_stores')
+async def api_create_vector_store(name: str = Form(...), file_id: str = Form('')):
+    """Create a new vector store."""
+    params = {'name': name}
+    if file_id:
+        params['file_ids'] = [file_id]
+    try:
+        store = client.vector_stores.create(**params)
+        return store.model_dump()
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get('/api/vector_stores/{store_id}')
+async def api_get_vector_store(store_id: str):
+    """Retrieve a vector store."""
+    try:
+        store = client.vector_stores.retrieve(store_id)
+        return store.model_dump()
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.delete('/api/vector_stores/{store_id}')
+async def api_delete_vector_store(store_id: str):
+    """Delete a vector store."""
+    try:
+        client.vector_stores.delete(store_id)
+        return {'deleted': store_id}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get('/api/vector_stores/{store_id}/files')
+async def api_list_vector_store_files(store_id: str):
+    """List files inside a vector store."""
+    try:
+        files = client.vector_stores.files.list(store_id, limit=100).data
+        return {'files': [f.model_dump() for f in files]}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post('/api/vector_stores/{store_id}/files')
+async def api_add_vector_store_file_api(store_id: str, file_id: str = Form(...)):
+    """Add a file to a vector store."""
+    try:
+        file_obj = client.vector_stores.files.create(store_id, file_id=file_id)
+        return file_obj.model_dump()
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.delete('/api/vector_stores/{store_id}/files/{file_id}')
+async def api_delete_vector_store_file_api(store_id: str, file_id: str):
+    """Remove a file from a vector store."""
+    try:
+        client.vector_stores.files.delete(store_id, file_id)
+        return {'deleted': file_id}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get('/api/threads/{thread_id}')
+async def api_get_thread(thread_id: str):
+    """Retrieve a thread."""
+    try:
+        thread = client.beta.threads.retrieve(thread_id)
+        return thread.model_dump()
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.delete('/api/threads/{thread_id}')
+async def api_delete_thread(thread_id: str):
+    """Delete a thread and its messages."""
+    try:
+        client.beta.threads.delete(thread_id)
+        return {'deleted': thread_id}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 if __name__ == '__main__':
     import uvicorn
     uvicorn.run(app, host='0.0.0.0', port=8000)
