@@ -449,12 +449,89 @@ async def delete_vector_store_file(request: Request, store_id: str, file_id: str
         flash_error(request, f'Ошибка: {e}')
     return RedirectResponse(request.url_for('view_vector_store', store_id=store_id), status_code=HTTP_302_FOUND)
 
-# Assistants management API
+# ----------------------- API endpoints -----------------------
+
+# Assistants list
 @app.get('/api/assistants')
 async def api_assistants():
+    """Return a list of all assistants."""
     try:
         assistants = client.beta.assistants.list(limit=100).data
         return {'assistants': [a.model_dump() for a in assistants]}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get('/api/assistants/{assistant_id}')
+async def api_get_assistant(assistant_id: str):
+    """Retrieve a single assistant."""
+    try:
+        assistant = client.beta.assistants.retrieve(assistant_id)
+        return assistant.model_dump()
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post('/api/threads')
+async def api_create_thread():
+    """Create a new thread."""
+    try:
+        thread = client.beta.threads.create()
+        return {'thread_id': thread.id}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post('/api/threads/{thread_id}/messages')
+async def api_add_message(thread_id: str, content: str = Form(...)):
+    """Add a user message to a thread."""
+    try:
+        msg = client.beta.threads.messages.create(
+            thread_id, role='user', content=content
+        )
+        return msg.model_dump()
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get('/api/threads/{thread_id}/messages')
+async def api_list_messages(thread_id: str):
+    """List messages for a thread."""
+    try:
+        messages = client.beta.threads.messages.list(thread_id, order='asc').data
+        return {'messages': [m.model_dump() for m in messages]}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post('/api/threads/{thread_id}/run')
+async def api_run(thread_id: str, assistant_id: str = Form(...)):
+    """Start a run for a thread with the given assistant."""
+    try:
+        run = client.beta.threads.runs.create(
+            thread_id=thread_id, assistant_id=assistant_id
+        )
+        return run.model_dump()
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get('/api/threads/{thread_id}/runs/{run_id}')
+async def api_run_status(thread_id: str, run_id: str):
+    """Get status information for a run."""
+    try:
+        run = client.beta.threads.runs.retrieve(run_id, thread_id=thread_id)
+        return run.model_dump()
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post('/api/threads/{thread_id}/runs/{run_id}/cancel')
+async def api_cancel_run(thread_id: str, run_id: str):
+    """Cancel a running thread."""
+    try:
+        run = client.beta.threads.runs.cancel(run_id, thread_id=thread_id)
+        return run.model_dump()
     except Exception as e:
         raise HTTPException(500, str(e))
 
