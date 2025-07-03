@@ -32,7 +32,7 @@
         <div class="mb-3">
             <label class="form-label">File Search</label>
             <select name="vector_store_id" class="form-select">
-                <option value="">Нет</option>
+                <option value="" selected>Нет</option>
             {% for v in vector_stores %}
                 <option value="{{ v.id }}">{{ v.name }}</option>
             {% endfor %}

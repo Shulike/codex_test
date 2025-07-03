@@ -341,24 +341,21 @@ def _assistant_tool_resources(a):
     """Return assistant tool resources as a plain dict."""
     if not a:
         return {}
-    tr = None
-    if isinstance(a, dict):
-        tr = a.get("tool_resources")
-    else:
+    tr = getattr(a, "tool_resources", None)
+    if hasattr(tr, "model_dump"):
         try:
-            tr = getattr(a, "tool_resources", None)
-            if hasattr(tr, "model_dump"):
-                tr = tr.model_dump()
+            tr = tr.model_dump()
         except Exception:
             tr = None
-        if tr is None:
+    if tr is None:
+        if isinstance(a, dict):
+            tr = a.get("tool_resources")
+        else:
             try:
                 tr = a.model_dump().get("tool_resources")
             except Exception:
                 tr = None
-    if not isinstance(tr, dict):
-        return {}
-    return tr
+    return tr if isinstance(tr, dict) else {}
 
 @app.get('/assistants/{assistant_id}/edit', response_class=HTMLResponse)
 async def edit_assistant(request: Request, assistant_id: str):
