@@ -341,6 +341,8 @@ def _assistant_tool_resources(a):
     """Return assistant tool resources as a plain dict."""
     if not a:
         return {}
+    if isinstance(a, dict):
+        return a.get("tool_resources", {}) or {}
     try:
         # OpenAI objects may expose tool_resources either as a model instance or
         # already dumped into a dict. Handle both cases gracefully.
@@ -363,7 +365,8 @@ def _assistant_tool_resources(a):
 async def edit_assistant(request: Request, assistant_id: str):
     login_required(request)
     try:
-        assistant = client.beta.assistants.retrieve(assistant_id)
+        assistant_obj = client.beta.assistants.retrieve(assistant_id)
+        assistant = assistant_obj.model_dump()
     except Exception as e:
         flash_error(request, f'Ошибка: {e}')
         return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
