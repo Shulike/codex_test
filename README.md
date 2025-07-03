@@ -78,14 +78,15 @@
 - `POST /api/vector_stores/{id}/files` — добавить файл в хранилище.
 - `DELETE /api/vector_stores/{id}/files/{file_id}` — удалить файл из хранилища.
 - `GET /api/models` — список доступных GPT‑моделей.
- - `POST /api/create_thread` — создать новый thread, возвращает `thread_id`.
+- `POST /api/create_thread` — создать новый thread, возвращает `thread_id`.
 - `GET /api/threads/{id}` — получить данные треда.
 - `DELETE /api/threads/{id}` — удалить тред.
 - `POST /api/threads/{id}/messages` — добавить сообщение пользователя.
 - `GET /api/threads/{id}/messages` — получить сообщения треда.
-- `POST /api/threads/{id}/run` — запустить ассистента в треде, требуется
-  `assistant_id` в форме.
-- `GET /api/threads/{id}/runs/{run_id}` — статус запуска.
+- `POST /api/run` — запустить ассистента в треде. Требуются поля
+  `thread_id` и `assistant_id`.
+- `GET /api/thread_status/{run_id}` — статус запущенного треда. В
+  параметре `thread_id` передаётся идентификатор треда.
 - `POST /api/threads/{id}/runs/{run_id}/cancel` — отменить выполнение.
 - `POST /api/assistants/{id}/chat` — задать вопрос ассистенту в новом треде.
 - `GET /api/billing` — данные баланса и расходов.

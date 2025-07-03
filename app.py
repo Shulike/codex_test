@@ -504,8 +504,8 @@ async def api_list_messages(thread_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.post('/api/threads/{thread_id}/run')
-async def api_run(thread_id: str, assistant_id: str = Form(...)):
+@app.post('/api/run')
+async def api_run(thread_id: str = Form(...), assistant_id: str = Form(...)):
     """Start a run for a thread with the given assistant."""
     try:
         run = client.beta.threads.runs.create(
@@ -516,8 +516,8 @@ async def api_run(thread_id: str, assistant_id: str = Form(...)):
         raise HTTPException(500, str(e))
 
 
-@app.get('/api/threads/{thread_id}/runs/{run_id}')
-async def api_run_status(thread_id: str, run_id: str):
+@app.get('/api/thread_status/{run_id}')
+async def api_thread_status(run_id: str, thread_id: str):
     """Get status information for a run."""
     try:
         run = client.beta.threads.runs.retrieve(run_id, thread_id=thread_id)
