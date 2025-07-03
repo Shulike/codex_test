@@ -8,7 +8,8 @@
    ```bash
    pip install -r requirements.txt
    ```
-   Потребуется пакет `requests` для запросов к статистике затрат.
+   Помимо FastAPI и OpenAI клиентской библиотеки понадобится Jinja2 для шаблонов,
+   `werkzeug` для хэширования паролей и `python-multipart` для обработки форм.
 
 2. Создайте файл `.env` со своим ключом API:
    ```bash
