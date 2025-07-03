@@ -1,4 +1,5 @@
-flask
+fastapi
+uvicorn
 openai>=1.30
 python-dotenv
 requests

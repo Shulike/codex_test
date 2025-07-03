@@ -2,261 +2,191 @@ import os
 import time
 import sqlite3
 from datetime import datetime, timedelta
-import requests
-from flask import (
-    Flask,
-    render_template,
-    request,
-    redirect,
-    url_for,
-    flash,
-    session,
-)
 import logging
-from functools import wraps
+from typing import Optional
+
+import requests
+from fastapi import FastAPI, Request, Form, HTTPException, Depends
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import Response
+from starlette.status import HTTP_302_FOUND
+from jinja2 import pass_context
 from werkzeug.security import generate_password_hash, check_password_hash
-from openai import OpenAI
 from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv()
 
-app = Flask(__name__)
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'change-me')
+app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key=os.environ.get("SESSION_SECRET_KEY", "change-me"))
 
-# configure basic logging
 logging.basicConfig(level=logging.INFO)
 
-
-def flash_error(message, exc=None):
-    """Log an error and flash it for the UI."""
-    if exc:
-        app.logger.exception(message)
-    else:
-        app.logger.error(message)
-    flash(message)
-
 openai_api_key = os.environ.get('OPENAI_API_KEY')
-
 if not openai_api_key:
-    raise RuntimeError("OPENAI_API_KEY environment variable not set")
+    raise RuntimeError('OPENAI_API_KEY environment variable not set')
 
-# Needed for vector stores and other beta features
-client = OpenAI(
-    api_key=openai_api_key,
-    default_headers={"OpenAI-Beta": "assistants=v2"},
-)
+client = OpenAI(api_key=openai_api_key, default_headers={"OpenAI-Beta": "assistants=v2"})
 
-# simple SQLite user storage
 DB_PATH = os.environ.get("DB_PATH", "app.db")
-
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
+def init_db():
+    with get_db() as db:
+        db.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL)")
+        db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+        if not db.execute("SELECT 1 FROM settings WHERE key='registration_open'").fetchone():
+            db.execute("INSERT INTO settings (key, value) VALUES ('registration_open','1')")
 
-def get_setting(key, default=None):
+init_db()
+
+def get_setting(key: str, default: Optional[str] = None):
     with get_db() as db:
         row = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
         return row['value'] if row else default
 
-
-def set_setting(key, value):
+def set_setting(key: str, value: str):
     with get_db() as db:
         if db.execute('SELECT 1 FROM settings WHERE key=?', (key,)).fetchone():
             db.execute('UPDATE settings SET value=? WHERE key=?', (value, key))
         else:
             db.execute('INSERT INTO settings (key, value) VALUES (?, ?)', (key, value))
 
-def init_db():
-    with get_db() as db:
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL)"
-        )
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"
-        )
-        # default: registration allowed
-        if not db.execute("SELECT 1 FROM settings WHERE key = ?", ("registration_open",)).fetchone():
-            db.execute(
-                "INSERT INTO settings (key, value) VALUES (?, ?)",
-                ("registration_open", "1"),
-            )
+# flash helpers
+@pass_context
+def get_flashed_messages(ctx):
+    request: Request = ctx['request']
+    msgs = request.session.pop('_messages', [])
+    return msgs
 
+def flash(request: Request, message: str):
+    request.session.setdefault('_messages', []).append(message)
 
-init_db()
+@pass_context
+def url_for(ctx, name: str, **path_params):
+    request: Request = ctx['request']
+    return request.url_for(name, **path_params)
 
+templates = Jinja2Templates(directory='templates')
+templates.env.globals['get_flashed_messages'] = get_flashed_messages
+templates.env.globals['url_for'] = url_for
 
-def current_user():
-    uid = session.get("user_id")
+def current_user(request: Request):
+    uid = request.session.get('user_id')
     if not uid:
         return None
     with get_db() as db:
-        return db.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
+        return db.execute('SELECT * FROM users WHERE id=?', (uid,)).fetchone()
 
+def login_required(request: Request):
+    if not request.session.get('user_id'):
+        raise HTTPException(status_code=401)
 
-def login_required(f):
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        if not session.get("user_id"):
-            return redirect(url_for("login", next=request.path))
-        return f(*args, **kwargs)
+@app.get('/register', response_class=HTMLResponse)
+async def register_form(request: Request):
+    if get_setting('registration_open','1') != '1':
+        flash(request, 'Регистрация закрыта администратором')
+        return RedirectResponse(url=request.url_for('login_form'), status_code=HTTP_302_FOUND)
+    return templates.TemplateResponse('register.html', {'request': request, 'title':'Регистрация'})
 
-    return wrapper
+@app.post('/register')
+async def register(request: Request, username: str = Form(...), password: str = Form(...)):
+    if get_setting('registration_open','1') != '1':
+        flash(request, 'Регистрация закрыта администратором')
+        return RedirectResponse(url=request.url_for('login_form'), status_code=HTTP_302_FOUND)
+    with get_db() as db:
+        try:
+            db.execute('INSERT INTO users (username, password) VALUES (?,?)', (username, generate_password_hash(password)))
+            flash(request, 'Регистрация успешна')
+            return RedirectResponse(url=request.url_for('login_form'), status_code=HTTP_302_FOUND)
+        except sqlite3.IntegrityError:
+            flash(request, 'Пользователь уже существует')
+            return RedirectResponse(url=request.url_for('register_form'), status_code=HTTP_302_FOUND)
 
+@app.get('/login', response_class=HTMLResponse)
+async def login_form(request: Request):
+    return templates.TemplateResponse('login.html', {'request': request, 'title':'Вход'})
 
-@app.context_processor
-def inject_user():
-    return {
-        "current_user": current_user(),
-        "registration_open": get_setting("registration_open", "1") == "1",
-    }
+@app.post('/login')
+async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    with get_db() as db:
+        user = db.execute('SELECT * FROM users WHERE username=?', (username,)).fetchone()
+    if not user or not check_password_hash(user['password'], password):
+        flash(request, 'Неверные учетные данные')
+        return RedirectResponse(url=request.url_for('login_form'), status_code=HTTP_302_FOUND)
+    request.session['user_id'] = user['id']
+    next_url = request.query_params.get('next') or request.url_for('index')
+    return RedirectResponse(url=next_url, status_code=HTTP_302_FOUND)
 
-
-@app.before_request
-def require_login():
-    if request.endpoint in {"login", "register", "static", "index"}:
-        return
-    if not session.get("user_id"):
-        return redirect(url_for("login", next=request.path))
-
-
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if get_setting("registration_open", "1") != "1":
-        flash("Регистрация закрыта администратором")
-        return redirect(url_for("login"))
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        if not username or not password:
-            flash("Введите имя пользователя и пароль")
-        else:
-            try:
-                with get_db() as db:
-                    db.execute(
-                        "INSERT INTO users (username, password) VALUES (?, ?)",
-                        (username, generate_password_hash(password)),
-                    )
-                    flash("Регистрация успешна")
-                    return redirect(url_for("login"))
-            except sqlite3.IntegrityError:
-                flash("Пользователь уже существует")
-    return render_template("register.html", title="Регистрация")
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        with get_db() as db:
-            user = db.execute(
-                "SELECT * FROM users WHERE username = ?", (username,)
-            ).fetchone()
-        if not user or not check_password_hash(user["password"], password):
-            flash("Неверные учетные данные")
-        else:
-            session["user_id"] = user["id"]
-            next_url = request.args.get("next") or url_for("index")
-            return redirect(next_url)
-    return render_template("login.html", title="Вход")
-
-
-@app.route("/logout", methods=["POST"])
-def logout():
-    session.pop("user_id", None)
-    return redirect(url_for("login"))
-
+@app.post('/logout')
+async def logout(request: Request):
+    request.session.pop('user_id', None)
+    return RedirectResponse(url=request.url_for('login_form'), status_code=HTTP_302_FOUND)
 
 def get_billing_data():
-    headers = {"Authorization": f"Bearer {openai_api_key}"}
+    headers = {'Authorization': f'Bearer {openai_api_key}'}
     try:
-        sub_resp = requests.get(
-            "https://api.openai.com/dashboard/billing/subscription",
-            headers=headers,
-            timeout=10,
-        )
-        sub = sub_resp.json()
-        if "error" in sub:
-            raise RuntimeError(sub["error"].get("message", "billing error"))
-
-        credit_resp = requests.get(
-            "https://api.openai.com/dashboard/billing/credit_grants",
-            headers=headers,
-            timeout=10,
-        )
-        credit = credit_resp.json()
-        if "error" in credit:
-            raise RuntimeError(credit["error"].get("message", "billing error"))
+        sub = requests.get('https://api.openai.com/dashboard/billing/subscription', headers=headers, timeout=10).json()
+        if 'error' in sub:
+            raise RuntimeError(sub['error'].get('message','billing error'))
+        credit = requests.get('https://api.openai.com/dashboard/billing/credit_grants', headers=headers, timeout=10).json()
+        if 'error' in credit:
+            raise RuntimeError(credit['error'].get('message','billing error'))
         end = datetime.utcnow().date()
         start = end - timedelta(days=30)
-        usage_resp = requests.get(
-            "https://api.openai.com/dashboard/billing/usage",
-            params={"start_date": start.isoformat(), "end_date": end.isoformat()},
-            headers=headers,
-            timeout=10,
-        )
-        usage = usage_resp.json()
-        if "error" in usage:
-            raise RuntimeError(usage["error"].get("message", "billing error"))
+        usage = requests.get('https://api.openai.com/dashboard/billing/usage', params={'start_date': start.isoformat(), 'end_date': end.isoformat()}, headers=headers, timeout=10).json()
+        if 'error' in usage:
+            raise RuntimeError(usage['error'].get('message','billing error'))
         daily = []
-        for day in usage.get("daily_costs", []):
-            cost = sum(li.get("cost", 0) for li in day.get("line_items", []))
-            daily.append({"date": day.get("timestamp", "")[:10], "cost": cost})
-
-        total_usage = usage.get("total_usage", 0) / 100.0
-        hard_limit = sub.get("hard_limit_usd", 0.0)
-        available = credit.get("total_available", 0.0)
+        for day in usage.get('daily_costs', []):
+            cost = sum(li.get('cost',0) for li in day.get('line_items',[]))
+            daily.append({'date': day.get('timestamp','')[:10], 'cost': cost})
+        total_usage = usage.get('total_usage',0)/100.0
+        hard_limit = sub.get('hard_limit_usd',0.0)
+        available = credit.get('total_available',0.0)
         if available == 0.0 and hard_limit:
             available = max(hard_limit - total_usage, 0.0)
-
-        return {
-            "daily": daily,
-            "total_usage": total_usage,
-            "available": available,
-        }
+        return {'daily': daily, 'total_usage': total_usage, 'available': available}
     except Exception as e:
-        return {"daily": [], "total_usage": 0.0, "available": 0.0, "error": str(e)}
+        return {'daily': [], 'total_usage': 0.0, 'available': 0.0, 'error': str(e)}
 
-@app.route('/')
-def index():
-    if not session.get("user_id"):
-        return render_template('landing.html', title='OpenAi hub api v2.0')
+@app.get('/', response_class=HTMLResponse)
+async def index(request: Request):
+    if not request.session.get('user_id'):
+        return templates.TemplateResponse('landing.html', {'request':request, 'title':'OpenAi hub api v2.0'})
     billing = get_billing_data()
-    if billing.get("error"):
-        flash_error(f"Ошибка получения данных: {billing['error']}")
+    if billing.get('error'):
+        flash(request, f"Ошибка получения данных: {billing['error']}")
     try:
         assistants = client.beta.assistants.list(limit=100).data
     except Exception as e:
-        flash_error(f"Ошибка: {e}", e)
+        flash(request, f'Ошибка: {e}')
         assistants = []
-    return render_template(
-        'index.html',
-        title='Дашборд',
-        daily=billing['daily'],
-        total_usage=billing['total_usage'],
-        available=billing['available'],
-        assistants=assistants,
-    )
+    return templates.TemplateResponse('index.html', {
+        'request': request,
+        'title': 'Дашборд',
+        'daily': billing['daily'],
+        'total_usage': billing['total_usage'],
+        'available': billing['available'],
+        'assistants': assistants,
+    })
 
-@app.route('/generate', methods=['POST'])
-def generate():
-    prompt = request.form.get('prompt', '').strip()
-    assistant_id = request.form.get('assistant_id', '').strip()
+@app.post('/generate')
+async def generate(request: Request, prompt: str = Form(''), assistant_id: str = Form('')):
     if not prompt or not assistant_id:
-        flash('Введите запрос и выберите ассистента')
-        return redirect(url_for('index'))
-
+        flash(request, 'Введите запрос и выберите ассистента')
+        return RedirectResponse(request.url_for('index'), status_code=HTTP_302_FOUND)
     try:
         thread = client.beta.threads.create()
         client.beta.threads.messages.create(thread.id, role='user', content=prompt)
-        run = client.beta.threads.runs.create(
-            thread_id=thread.id,
-            assistant_id=assistant_id,
-        )
-        while run.status in ('queued', 'in_progress'):
+        run = client.beta.threads.runs.create(thread_id=thread.id, assistant_id=assistant_id)
+        while run.status in ('queued','in_progress'):
             time.sleep(1)
             run = client.beta.threads.runs.retrieve(run.id, thread_id=thread.id)
         messages = client.beta.threads.messages.list(thread.id, order='asc').data
@@ -270,405 +200,35 @@ def generate():
             pass
     except Exception as e:
         answer = f'Ошибка: {e}'
-
     billing = get_billing_data()
     if billing.get('error'):
-        flash_error(f"Ошибка получения данных: {billing['error']}")
+        flash(request, f"Ошибка получения данных: {billing['error']}")
     try:
         assistants = client.beta.assistants.list(limit=100).data
     except Exception as e:
-        flash_error(f"Ошибка: {e}", e)
+        flash(request, f'Ошибка: {e}')
         assistants = []
+    return templates.TemplateResponse('index.html', {
+        'request': request,
+        'title': 'Дашборд',
+        'daily': billing['daily'],
+        'total_usage': billing['total_usage'],
+        'available': billing['available'],
+        'assistants': assistants,
+        'prompt': prompt,
+        'answer': answer,
+        'selected_assistant': assistant_id,
+    })
 
-    return render_template(
-        'index.html',
-        title='Дашборд',
-        daily=billing['daily'],
-        total_usage=billing['total_usage'],
-        available=billing['available'],
-        assistants=assistants,
-        prompt=prompt,
-        answer=answer,
-        selected_assistant=assistant_id,
-    )
-
-
-@app.route('/assistants')
-def list_assistants():
-    query = request.args.get('q', '').strip()
-    page_num = int(request.args.get('page', 1))
-    per_page = 10
+# Assistants management API
+@app.get('/api/assistants')
+async def api_assistants():
     try:
-        all_items = list(client.beta.assistants.list(limit=100))
+        assistants = client.beta.assistants.list(limit=100).data
+        return {'assistants': [a.model_dump() for a in assistants]}
     except Exception as e:
-        flash_error(f'Ошибка: {e}', e)
-        all_items = []
-    if query:
-        ql = query.lower()
-        all_items = [a for a in all_items if ql in (a.name or '').lower() or ql in a.id]
-    total = len(all_items)
-    start = (page_num - 1) * per_page
-    end = start + per_page
-    assistants = all_items[start:end]
-    prev_page = page_num - 1 if start > 0 else None
-    next_page = page_num + 1 if end < total else None
-    return render_template(
-        'assistants.html',
-        title='Ассистенты',
-        assistants=assistants,
-        q=query,
-        prev_page=prev_page,
-        next_page=next_page,
-    )
-
-
-@app.route('/assistants/new', methods=['GET', 'POST'])
-def new_assistant():
-    default_model = 'gpt-4o-mini'
-    try:
-        models = [m.id for m in client.models.list().data if m.id.startswith('gpt')]
-        vector_stores = client.vector_stores.list().data
-    except Exception as e:
-        flash_error(f'Ошибка: {e}', e)
-        models = ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo-1106']
-        vector_stores = []
-
-    if request.method == 'POST':
-        name = request.form.get('name')
-        instructions = request.form.get('instructions')
-        model = request.form.get('model', default_model)
-        temperature = float(request.form.get('temperature', 0.3))
-        top_p = float(request.form.get('top_p', 0.15))
-        vector_store_id = request.form.get('vector_store_id') or None
-        try:
-            tools = []
-            tool_resources = {}
-            if vector_store_id:
-                tools.append({"type": "file_search"})
-                tool_resources = {"file_search": {"vector_store_ids": [vector_store_id]}}
-            client.beta.assistants.create(
-                name=name,
-                instructions=instructions,
-                model=model,
-                temperature=temperature,
-                top_p=top_p,
-                tools=tools,
-                tool_resources=tool_resources,
-            )
-            flash('Ассистент создан')
-            return redirect(url_for('list_assistants'))
-        except Exception as e:
-            flash_error(f'Ошибка: {e}', e)
-    return render_template(
-        'new_assistant.html',
-        title='Создать ассистента',
-        models=models,
-        default_model=default_model,
-        vector_stores=vector_stores,
-    )
-
-
-@app.route('/assistants/<assistant_id>/edit', methods=['GET', 'POST'])
-def edit_assistant(assistant_id):
-    try:
-        assistant = client.beta.assistants.retrieve(assistant_id)
-        resources = assistant.tool_resources
-        if resources and resources.code_interpreter and resources.code_interpreter.file_ids:
-            files = resources.code_interpreter.file_ids
-        else:
-            files = []
-        models = [m.id for m in client.models.list().data if m.id.startswith('gpt')]
-        vector_stores = client.vector_stores.list().data
-    except Exception as e:
-        flash_error(f'Ошибка: {e}', e)
-        return redirect(url_for('list_assistants'))
-
-    if request.method == 'POST':
-        name = request.form.get('name')
-        instructions = request.form.get('instructions')
-        model = request.form.get('model')
-        temperature = float(request.form.get('temperature', 0.3))
-        top_p = float(request.form.get('top_p', 0.15))
-        vector_store_id = request.form.get('vector_store_id') or None
-        try:
-            update_kwargs = dict(
-                name=name,
-                instructions=instructions,
-                model=model,
-                temperature=temperature,
-                top_p=top_p,
-            )
-            if vector_store_id:
-                update_kwargs["tools"] = [{"type": "file_search"}]
-                update_kwargs["tool_resources"] = {
-                    "file_search": {"vector_store_ids": [vector_store_id]}
-                }
-            client.beta.assistants.update(
-                assistant_id,
-                **update_kwargs,
-            )
-            flash('Ассистент обновлён')
-            return redirect(url_for('edit_assistant', assistant_id=assistant_id))
-        except Exception as e:
-            flash_error(f'Ошибка: {e}', e)
-
-    try:
-        selected_vector_store = assistant.tool_resources.file_search.vector_store_ids[0]
-    except Exception:
-        selected_vector_store = ''
-
-    return render_template(
-        'edit_assistant.html',
-        title='Редактировать ассистента',
-        assistant=assistant,
-        files=files,
-        models=models,
-        vector_stores=vector_stores,
-        selected_vector_store=selected_vector_store,
-    )
-
-
-@app.route('/assistants/<assistant_id>/delete', methods=['POST'])
-def delete_assistant(assistant_id):
-    try:
-        client.beta.assistants.delete(assistant_id)
-        flash('Ассистент удалён')
-    except Exception as e:
-        flash_error(f'Ошибка: {e}', e)
-    return redirect(url_for('list_assistants'))
-
-
-@app.route('/assistants/<assistant_id>/files/add', methods=['POST'])
-def add_file(assistant_id):
-    file_id = request.form.get('file_id')
-    try:
-        assistant = client.beta.assistants.retrieve(assistant_id)
-        resources = assistant.tool_resources
-        file_ids = []
-        if resources and resources.code_interpreter and resources.code_interpreter.file_ids:
-            file_ids = list(resources.code_interpreter.file_ids)
-        if file_id not in file_ids:
-            file_ids.append(file_id)
-        tool_resources = {}
-        if file_ids:
-            tool_resources["code_interpreter"] = {"file_ids": file_ids}
-        if resources and resources.file_search and resources.file_search.vector_store_ids:
-            tool_resources["file_search"] = {"vector_store_ids": resources.file_search.vector_store_ids}
-        client.beta.assistants.update(
-            assistant_id,
-            tool_resources=tool_resources,
-        )
-        flash('Файл добавлен')
-    except Exception as e:
-        flash_error(f'Ошибка: {e}', e)
-    return redirect(url_for('edit_assistant', assistant_id=assistant_id))
-
-
-@app.route('/assistants/<assistant_id>/files/<file_id>/delete', methods=['POST'])
-def delete_file(assistant_id, file_id):
-    try:
-        assistant = client.beta.assistants.retrieve(assistant_id)
-        resources = assistant.tool_resources
-        file_ids = []
-        if resources and resources.code_interpreter and resources.code_interpreter.file_ids:
-            file_ids = [fid for fid in resources.code_interpreter.file_ids if fid != file_id]
-        tool_resources = {}
-        if file_ids:
-            tool_resources["code_interpreter"] = {"file_ids": file_ids}
-        if resources and resources.file_search and resources.file_search.vector_store_ids:
-            tool_resources["file_search"] = {"vector_store_ids": resources.file_search.vector_store_ids}
-        client.beta.assistants.update(
-            assistant_id,
-            tool_resources=tool_resources,
-        )
-        flash('Файл удалён')
-    except Exception as e:
-        flash_error(f'Ошибка: {e}', e)
-    return redirect(url_for('edit_assistant', assistant_id=assistant_id))
-
-
-@app.route('/assistants/<assistant_id>/test', methods=['GET', 'POST'])
-def test_assistant(assistant_id):
-    if 'threads' not in session:
-        session['threads'] = {}
-    threads = session['threads']
-    thread_id = threads.get(assistant_id)
-    if not thread_id:
-        thread = client.beta.threads.create()
-        thread_id = thread.id
-        threads[assistant_id] = thread_id
-        session.modified = True
-
-    if request.method == 'POST':
-        prompt = request.form.get('prompt', '').strip()
-        if prompt:
-            try:
-                client.beta.threads.messages.create(
-                    thread_id, role='user', content=prompt
-                )
-                run = client.beta.threads.runs.create(
-                    thread_id=thread_id, assistant_id=assistant_id
-                )
-                while run.status in ('queued', 'in_progress'):
-                    time.sleep(1)
-                    run = client.beta.threads.runs.retrieve(
-                        run.id, thread_id=thread_id
-                    )
-            except Exception as e:
-                flash_error(f'Ошибка: {e}', e)
-
-    try:
-        assistant = client.beta.assistants.retrieve(assistant_id)
-    except Exception as e:
-        flash_error(f'Ошибка: {e}', e)
-        return redirect(url_for('list_assistants'))
-
-    try:
-        messages = client.beta.threads.messages.list(
-            thread_id, order='asc'
-        ).data
-    except Exception as e:
-        flash_error(f'Ошибка: {e}', e)
-        messages = []
-
-    return render_template(
-        'test_assistant.html',
-        title=f'Тест: {assistant.name}',
-        assistant=assistant,
-        messages=messages,
-    )
-
-
-@app.route('/assistants/<assistant_id>/reset', methods=['POST'])
-def reset_assistant_thread(assistant_id):
-    threads = session.get('threads', {})
-    thread_id = threads.pop(assistant_id, None)
-    session['threads'] = threads
-    session.modified = True
-    if thread_id:
-        try:
-            client.beta.threads.delete(thread_id)
-        except Exception:
-            pass
-    flash('Диалог очищен')
-    return redirect(url_for('test_assistant', assistant_id=assistant_id))
-
-
-@app.route('/filesearch')
-def list_vector_stores():
-    query = request.args.get('q', '').strip()
-    page_num = int(request.args.get('page', 1))
-    per_page = 10
-    try:
-        all_items = list(client.vector_stores.list(limit=100))
-    except Exception as e:
-        flash_error(f'Ошибка: {e}', e)
-        all_items = []
-    if query:
-        ql = query.lower()
-        all_items = [v for v in all_items if ql in (v.name or '').lower() or ql in v.id]
-    total = len(all_items)
-    start = (page_num - 1) * per_page
-    end = start + per_page
-    vector_stores = all_items[start:end]
-    prev_page = page_num - 1 if start > 0 else None
-    next_page = page_num + 1 if end < total else None
-    return render_template(
-        'vector_stores.html',
-        title='File Search',
-        vector_stores=vector_stores,
-        q=query,
-        prev_page=prev_page,
-        next_page=next_page,
-    )
-
-
-@app.route('/filesearch/new', methods=['GET', 'POST'])
-def new_vector_store():
-    if request.method == 'POST':
-        name = request.form.get('name')
-        file_id = request.form.get('file_id')
-        try:
-            kwargs = {"name": name}
-            if file_id:
-                kwargs["file_ids"] = [file_id]
-            client.vector_stores.create(**kwargs)
-            flash('File Search создан')
-            return redirect(url_for('list_vector_stores'))
-        except Exception as e:
-            flash_error(f'Ошибка: {e}', e)
-    return render_template('new_vector_store.html', title='Создать File Search')
-
-
-@app.route('/filesearch/<vs_id>')
-def view_vector_store(vs_id):
-    try:
-        vector_store = client.vector_stores.retrieve(vs_id)
-        files = client.vector_stores.files.list(vs_id).data
-    except Exception as e:
-        flash_error(f'Ошибка: {e}', e)
-        return redirect(url_for('list_vector_stores'))
-    return render_template(
-        'view_vector_store.html',
-        title=f'File Search: {vector_store.name}',
-        vector_store=vector_store,
-        files=files,
-    )
-
-
-@app.route('/filesearch/<vs_id>/delete', methods=['POST'])
-def delete_vector_store(vs_id):
-    try:
-        client.vector_stores.delete(vs_id)
-        flash('File Search удалён')
-    except Exception as e:
-        flash_error(f'Ошибка: {e}', e)
-    return redirect(url_for('list_vector_stores'))
-
-
-@app.route('/filesearch/<vs_id>/files/add', methods=['POST'])
-def add_vector_store_file(vs_id):
-    file_id = request.form.get('file_id')
-    try:
-        client.vector_stores.files.create(vs_id, file_id=file_id)
-        flash('Файл добавлен')
-    except Exception as e:
-        flash_error(f'Ошибка: {e}', e)
-    return redirect(url_for('view_vector_store', vs_id=vs_id))
-
-
-@app.route('/filesearch/<vs_id>/files/<file_id>/delete', methods=['POST'])
-def delete_vector_store_file(vs_id, file_id):
-    try:
-        client.vector_stores.files.delete(vs_id, file_id)
-        flash('Файл удалён')
-    except Exception as e:
-        flash_error(f'Ошибка: {e}', e)
-    return redirect(url_for('view_vector_store', vs_id=vs_id))
-
-
-@app.route('/settings', methods=['GET', 'POST'])
-@login_required
-def site_settings():
-    if request.method == 'POST':
-        if 'change_password' in request.form:
-            current_password = request.form.get('current_password', '')
-            new_password = request.form.get('new_password', '')
-            with get_db() as db:
-                user = db.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
-                if not check_password_hash(user['password'], current_password):
-                    flash('Неверный текущий пароль')
-                elif not new_password:
-                    flash('Новый пароль не может быть пустым')
-                else:
-                    db.execute('UPDATE users SET password=? WHERE id=?', (generate_password_hash(new_password), user['id']))
-                    flash('Пароль обновлён')
-        elif 'update_registration' in request.form:
-            reg_open = request.form.get('registration_open') == 'on'
-            set_setting('registration_open', '1' if reg_open else '0')
-            flash('Настройки обновлены')
-    reg_open = get_setting('registration_open', '1') == '1'
-    return render_template('settings.html', title='Настройка сайта', registration_open=reg_open)
+        raise HTTPException(500, str(e))
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    import uvicorn
+    uvicorn.run(app, host='0.0.0.0', port=8000)
