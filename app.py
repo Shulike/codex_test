@@ -58,7 +58,7 @@ class CreateThreadPayload(BaseModel):
 
 class AddMessagePayload(BaseModel):
     thread_id: str
-    role: str = Field("user", regex="^(user|assistant)$")
+    role: str = Field("user", pattern=r"^(user|assistant)$")
     content: str
 
 
