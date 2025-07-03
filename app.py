@@ -3,7 +3,7 @@ import time
 import sqlite3
 from datetime import datetime, timedelta
 import logging
-from typing import Optional
+from typing import Optional, List
 
 import requests
 from fastapi import FastAPI, Request, Form, HTTPException, Depends
@@ -68,6 +68,10 @@ def get_flashed_messages(ctx):
 def flash(request: Request, message: str):
     request.session.setdefault('_messages', []).append(message)
 
+def flash_error(request: Request, message: str):
+    logging.error(message)
+    flash(request, message)
+
 @pass_context
 def url_for(ctx, name: str, **path_params):
     request: Request = ctx['request']
@@ -94,6 +98,14 @@ def current_user(request: Request):
 def login_required(request: Request):
     if not request.session.get('user_id'):
         raise HTTPException(status_code=401)
+
+def list_gpt_models() -> List[str]:
+    try:
+        models = client.models.list().data
+        return sorted({m.id for m in models if m.id.startswith('gpt-')})
+    except Exception as e:
+        logging.error("failed to list models: %s", e)
+        return ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"]
 
 @app.get('/register', response_class=HTMLResponse)
 async def register_form(request: Request):
@@ -135,6 +147,37 @@ async def login(request: Request, username: str = Form(...), password: str = For
 async def logout(request: Request):
     request.session.pop('user_id', None)
     return RedirectResponse(url=request.url_for('login_form'), status_code=HTTP_302_FOUND)
+
+@app.get('/settings', response_class=HTMLResponse)
+async def settings_form(request: Request):
+    login_required(request)
+    return templates.TemplateResponse('settings.html', {
+        'request': request,
+        'title': 'Настройка сайта',
+        'registration_open': get_setting('registration_open','1') == '1'
+    })
+
+@app.post('/settings')
+async def settings_update(request: Request,
+    current_password: str = Form(None), new_password: str = Form(None),
+    change_password: str = Form(None), registration_open: str = Form('off'),
+    update_registration: str = Form(None)):
+    login_required(request)
+    if change_password:
+        if not current_password or not new_password:
+            flash_error(request, 'Введите текущий и новый пароль')
+            return RedirectResponse(request.url_for('settings_form'), status_code=HTTP_302_FOUND)
+        with get_db() as db:
+            user = db.execute('SELECT * FROM users WHERE id=?', (request.session['user_id'],)).fetchone()
+            if not user or not check_password_hash(user['password'], current_password):
+                flash_error(request, 'Неверный текущий пароль')
+            else:
+                db.execute('UPDATE users SET password=? WHERE id=?', (generate_password_hash(new_password), user['id']))
+                flash(request, 'Пароль обновлён')
+    if update_registration:
+        set_setting('registration_open', '1' if registration_open == 'on' else '0')
+        flash(request, 'Настройки сохранены')
+    return RedirectResponse(request.url_for('settings_form'), status_code=HTTP_302_FOUND)
 
 def get_billing_data():
     headers = {'Authorization': f'Bearer {openai_api_key}'}
@@ -226,6 +269,332 @@ async def generate(request: Request, prompt: str = Form(''), assistant_id: str =
         'answer': answer,
         'selected_assistant': assistant_id,
     })
+
+# --------------- Assistants management ---------------
+
+PAGE_SIZE = 10
+
+@app.get('/assistants', response_class=HTMLResponse)
+async def list_assistants(request: Request, page: int = 1, q: str = ''):
+    login_required(request)
+    try:
+        assistants = client.beta.assistants.list(limit=100).data
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+        assistants = []
+    if q:
+        assistants = [a for a in assistants if q.lower() in (a.name or '').lower()]
+    start = (page - 1) * PAGE_SIZE
+    end = start + PAGE_SIZE
+    prev_page = page - 1 if start > 0 else None
+    next_page = page + 1 if end < len(assistants) else None
+    return templates.TemplateResponse('assistants.html', {
+        'request': request,
+        'title': 'Ассистенты',
+        'assistants': assistants[start:end],
+        'prev_page': prev_page,
+        'next_page': next_page,
+        'q': q,
+    })
+
+@app.get('/assistants/new', response_class=HTMLResponse)
+async def new_assistant_form(request: Request):
+    login_required(request)
+    models = list_gpt_models()
+    try:
+        vector_stores = client.vector_stores.list(limit=100).data
+    except Exception:
+        vector_stores = []
+    return templates.TemplateResponse('new_assistant.html', {
+        'request': request,
+        'title': 'Создать ассистента',
+        'models': models,
+        'vector_stores': vector_stores,
+        'default_model': 'gpt-4o-mini'
+    })
+
+@app.post('/assistants/new')
+async def new_assistant(request: Request, name: str = Form(...), instructions: str = Form(''),
+                        model: str = Form('gpt-4o-mini'), temperature: float = Form(0.30),
+                        top_p: float = Form(0.15), vector_store_id: str = Form('')):
+    login_required(request)
+    params = {
+        'name': name,
+        'instructions': instructions,
+        'model': model,
+        'temperature': temperature,
+        'top_p': top_p,
+    }
+    tool_resources = {}
+    if vector_store_id:
+        tool_resources['file_search'] = {'vector_store_ids': [vector_store_id]}
+    if tool_resources:
+        params['tool_resources'] = tool_resources
+    try:
+        client.beta.assistants.create(**params)
+        flash(request, 'Ассистент создан')
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+    return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
+
+def _assistant_tool_resources(a):
+    return a.tool_resources.model_dump() if a.tool_resources else {}
+
+@app.get('/assistants/{assistant_id}/edit', response_class=HTMLResponse)
+async def edit_assistant(request: Request, assistant_id: str):
+    login_required(request)
+    try:
+        assistant = client.beta.assistants.retrieve(assistant_id)
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+        return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
+    models = list_gpt_models()
+    try:
+        vector_stores = client.vector_stores.list(limit=100).data
+    except Exception:
+        vector_stores = []
+    tr = _assistant_tool_resources(assistant)
+    selected_vs = tr.get('file_search', {}).get('vector_store_ids', [None])[0]
+    files = tr.get('code_interpreter', {}).get('file_ids', [])
+    return templates.TemplateResponse('edit_assistant.html', {
+        'request': request,
+        'title': 'Редактировать ассистента',
+        'assistant': assistant,
+        'models': models,
+        'vector_stores': vector_stores,
+        'selected_vector_store': selected_vs,
+        'files': files,
+    })
+
+@app.post('/assistants/{assistant_id}/edit')
+async def update_assistant(request: Request, assistant_id: str, name: str = Form(...),
+                           instructions: str = Form(''), model: str = Form('gpt-4o-mini'),
+                           temperature: float = Form(0.30), top_p: float = Form(0.15),
+                           vector_store_id: str = Form('')):
+    login_required(request)
+    try:
+        assistant = client.beta.assistants.retrieve(assistant_id)
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+        return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
+    tr = _assistant_tool_resources(assistant)
+    files = tr.get('code_interpreter', {}).get('file_ids', [])
+    if vector_store_id:
+        tr['file_search'] = {'vector_store_ids': [vector_store_id]}
+    else:
+        tr.pop('file_search', None)
+    if files:
+        tr.setdefault('code_interpreter', {})['file_ids'] = files
+    params = {
+        'name': name,
+        'instructions': instructions,
+        'model': model,
+        'temperature': temperature,
+        'top_p': top_p,
+        'tool_resources': tr or None,
+    }
+    try:
+        client.beta.assistants.update(assistant_id, **params)
+        flash(request, 'Ассистент обновлен')
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+    return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
+
+@app.post('/assistants/{assistant_id}/delete')
+async def delete_assistant(request: Request, assistant_id: str):
+    login_required(request)
+    try:
+        client.beta.assistants.delete(assistant_id)
+        flash(request, 'Ассистент удален')
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+    return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
+
+@app.post('/assistants/{assistant_id}/files/add')
+async def add_assistant_file(request: Request, assistant_id: str, file_id: str = Form(...)):
+    login_required(request)
+    try:
+        assistant = client.beta.assistants.retrieve(assistant_id)
+        tr = _assistant_tool_resources(assistant)
+        files = tr.get('code_interpreter', {}).get('file_ids', [])
+        files.append(file_id)
+        tr.setdefault('code_interpreter', {})['file_ids'] = files
+        if assistant.tool_resources and assistant.tool_resources.file_search:
+            tr.setdefault('file_search', {}).setdefault('vector_store_ids', assistant.tool_resources.file_search.vector_store_ids)
+        client.beta.assistants.update(assistant_id, tool_resources=tr)
+        flash(request, 'Файл добавлен')
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+    return RedirectResponse(request.url_for('edit_assistant', assistant_id=assistant_id), status_code=HTTP_302_FOUND)
+
+@app.post('/assistants/{assistant_id}/files/{file_id}/delete')
+async def delete_assistant_file(request: Request, assistant_id: str, file_id: str):
+    login_required(request)
+    try:
+        assistant = client.beta.assistants.retrieve(assistant_id)
+        tr = _assistant_tool_resources(assistant)
+        files = tr.get('code_interpreter', {}).get('file_ids', [])
+        files = [f for f in files if f != file_id]
+        if files:
+            tr.setdefault('code_interpreter', {})['file_ids'] = files
+        else:
+            tr.pop('code_interpreter', None)
+        if assistant.tool_resources and assistant.tool_resources.file_search:
+            tr.setdefault('file_search', {}).setdefault('vector_store_ids', assistant.tool_resources.file_search.vector_store_ids)
+        client.beta.assistants.update(assistant_id, tool_resources=tr or None)
+        flash(request, 'Файл удален')
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+    return RedirectResponse(request.url_for('edit_assistant', assistant_id=assistant_id), status_code=HTTP_302_FOUND)
+
+@app.get('/assistants/{assistant_id}/test', response_class=HTMLResponse)
+async def test_assistant(request: Request, assistant_id: str):
+    login_required(request)
+    try:
+        assistant = client.beta.assistants.retrieve(assistant_id)
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+        return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
+    threads = request.session.setdefault('threads', {})
+    thread_id = threads.get(assistant_id)
+    if not thread_id:
+        thread = client.beta.threads.create()
+        thread_id = thread.id
+        threads[assistant_id] = thread_id
+    try:
+        messages = client.beta.threads.messages.list(thread_id, order='asc').data
+    except Exception:
+        messages = []
+    return templates.TemplateResponse('test_assistant.html', {
+        'request': request,
+        'title': 'Тестирование',
+        'assistant': assistant,
+        'messages': messages,
+    })
+
+@app.post('/assistants/{assistant_id}/test')
+async def send_assistant_message(request: Request, assistant_id: str, prompt: str = Form('')):
+    login_required(request)
+    threads = request.session.setdefault('threads', {})
+    thread_id = threads.get(assistant_id)
+    if not thread_id:
+        thread = client.beta.threads.create()
+        thread_id = thread.id
+        threads[assistant_id] = thread_id
+    if prompt:
+        try:
+            client.beta.threads.messages.create(thread_id, role='user', content=prompt)
+            run = client.beta.threads.runs.create(thread_id=thread_id, assistant_id=assistant_id)
+            while run.status in ('queued','in_progress'):
+                time.sleep(1)
+                run = client.beta.threads.runs.retrieve(run.id, thread_id=thread_id)
+        except Exception as e:
+            flash_error(request, f'Ошибка: {e}')
+    return RedirectResponse(request.url_for('test_assistant', assistant_id=assistant_id), status_code=HTTP_302_FOUND)
+
+@app.post('/assistants/{assistant_id}/reset')
+async def reset_assistant_thread(request: Request, assistant_id: str):
+    login_required(request)
+    threads = request.session.setdefault('threads', {})
+    thread_id = threads.pop(assistant_id, None)
+    if thread_id:
+        try:
+            client.beta.threads.delete(thread_id)
+        except Exception:
+            pass
+    return RedirectResponse(request.url_for('test_assistant', assistant_id=assistant_id), status_code=HTTP_302_FOUND)
+
+# --------------- Vector store (File Search) management ---------------
+
+@app.get('/filesearch', response_class=HTMLResponse)
+async def list_vector_stores(request: Request, page: int = 1, q: str = ''):
+    login_required(request)
+    try:
+        stores = client.vector_stores.list(limit=100).data
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+        stores = []
+    if q:
+        stores = [v for v in stores if q.lower() in (v.name or '').lower()]
+    start = (page - 1) * PAGE_SIZE
+    end = start + PAGE_SIZE
+    prev_page = page - 1 if start > 0 else None
+    next_page = page + 1 if end < len(stores) else None
+    return templates.TemplateResponse('vector_stores.html', {
+        'request': request,
+        'title': 'File Search',
+        'vector_stores': stores[start:end],
+        'prev_page': prev_page,
+        'next_page': next_page,
+        'q': q,
+    })
+
+@app.get('/filesearch/new', response_class=HTMLResponse)
+async def new_vector_store_form(request: Request):
+    login_required(request)
+    return templates.TemplateResponse('new_vector_store.html', {
+        'request': request,
+        'title': 'Создать File Search'
+    })
+
+@app.post('/filesearch/new')
+async def new_vector_store(request: Request, name: str = Form(...), file_id: str = Form('')):
+    login_required(request)
+    params = {'name': name}
+    if file_id:
+        params['file_ids'] = [file_id]
+    try:
+        client.vector_stores.create(**params)
+        flash(request, 'File Search создан')
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+    return RedirectResponse(request.url_for('list_vector_stores'), status_code=HTTP_302_FOUND)
+
+@app.get('/filesearch/{store_id}', response_class=HTMLResponse)
+async def view_vector_store(request: Request, store_id: str):
+    login_required(request)
+    try:
+        store = client.vector_stores.retrieve(store_id)
+        files = client.vector_stores.files.list(store_id, limit=100).data
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+        return RedirectResponse(request.url_for('list_vector_stores'), status_code=HTTP_302_FOUND)
+    return templates.TemplateResponse('view_vector_store.html', {
+        'request': request,
+        'title': 'Файлы',
+        'vector_store': store,
+        'files': files,
+    })
+
+@app.post('/filesearch/{store_id}/delete')
+async def delete_vector_store(request: Request, store_id: str):
+    login_required(request)
+    try:
+        client.vector_stores.delete(store_id)
+        flash(request, 'File Search удалён')
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+    return RedirectResponse(request.url_for('list_vector_stores'), status_code=HTTP_302_FOUND)
+
+@app.post('/filesearch/{store_id}/files/add')
+async def add_vector_store_file(request: Request, store_id: str, file_id: str = Form(...)):
+    login_required(request)
+    try:
+        client.vector_stores.files.create(store_id, file_id=file_id)
+        flash(request, 'Файл добавлен')
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+    return RedirectResponse(request.url_for('view_vector_store', store_id=store_id), status_code=HTTP_302_FOUND)
+
+@app.post('/filesearch/{store_id}/files/{file_id}/delete')
+async def delete_vector_store_file(request: Request, store_id: str, file_id: str):
+    login_required(request)
+    try:
+        client.vector_stores.files.delete(store_id, file_id)
+        flash(request, 'Файл удалён')
+    except Exception as e:
+        flash_error(request, f'Ошибка: {e}')
+    return RedirectResponse(request.url_for('view_vector_store', store_id=store_id), status_code=HTTP_302_FOUND)
 
 # Assistants management API
 @app.get('/api/assistants')
