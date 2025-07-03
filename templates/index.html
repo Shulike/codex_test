@@ -35,30 +35,4 @@
   </tbody>
 </table>
 
-<h2>Быстрый запрос</h2>
-<div class="form-card">
-  <div class="card animate__animated animate__fadeIn">
-    <div class="card-body">
-      <form action="/generate" method="post">
-          <div class="mb-3">
-              <label class="form-label">Ассистент</label>
-              <select name="assistant_id" class="form-select">
-              {% for a in assistants %}
-                  <option value="{{ a.id }}" {% if a.id == selected_assistant %}selected{% endif %}>{{ a.name or a.id }}</option>
-              {% endfor %}
-              </select>
-          </div>
-          <div class="mb-3">
-              <label for="prompt" class="form-label">Запрос</label>
-              <textarea name="prompt" id="prompt" class="form-control" rows="4">{{ prompt|default('') }}</textarea>
-          </div>
-          <button type="submit" class="btn btn-primary">Отправить</button>
-      </form>
-    </div>
-  </div>
-</div>
-{% if answer %}
-<h3>Ответ</h3>
-<pre class="bg-light p-3">{{ answer }}</pre>
-{% endif %}
 {% endblock %}

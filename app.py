@@ -213,62 +213,14 @@ async def index(request: Request):
     billing = get_billing_data()
     if billing.get('error'):
         flash(request, f"Ошибка получения данных: {billing['error']}")
-    try:
-        assistants = client.beta.assistants.list(limit=100).data
-    except Exception as e:
-        flash(request, f'Ошибка: {e}')
-        assistants = []
     return templates.TemplateResponse('index.html', {
         'request': request,
         'title': 'Дашборд',
         'daily': billing['daily'],
         'total_usage': billing['total_usage'],
         'available': billing['available'],
-        'assistants': assistants,
     })
 
-@app.post('/generate')
-async def generate(request: Request, prompt: str = Form(''), assistant_id: str = Form('')):
-    if not prompt or not assistant_id:
-        flash(request, 'Введите запрос и выберите ассистента')
-        return RedirectResponse(request.url_for('index'), status_code=HTTP_302_FOUND)
-    try:
-        thread = client.beta.threads.create()
-        client.beta.threads.messages.create(thread.id, role='user', content=prompt)
-        run = client.beta.threads.runs.create(thread_id=thread.id, assistant_id=assistant_id)
-        while run.status in ('queued','in_progress'):
-            time.sleep(1)
-            run = client.beta.threads.runs.retrieve(run.id, thread_id=thread.id)
-        messages = client.beta.threads.messages.list(thread.id, order='asc').data
-        answer = ''
-        for m in messages:
-            if m.role == 'assistant' and m.content:
-                answer = m.content[0].text.value
-        try:
-            client.beta.threads.delete(thread.id)
-        except Exception:
-            pass
-    except Exception as e:
-        answer = f'Ошибка: {e}'
-    billing = get_billing_data()
-    if billing.get('error'):
-        flash(request, f"Ошибка получения данных: {billing['error']}")
-    try:
-        assistants = client.beta.assistants.list(limit=100).data
-    except Exception as e:
-        flash(request, f'Ошибка: {e}')
-        assistants = []
-    return templates.TemplateResponse('index.html', {
-        'request': request,
-        'title': 'Дашборд',
-        'daily': billing['daily'],
-        'total_usage': billing['total_usage'],
-        'available': billing['available'],
-        'assistants': assistants,
-        'prompt': prompt,
-        'answer': answer,
-        'selected_assistant': assistant_id,
-    })
 
 # --------------- Assistants management ---------------
 
