@@ -337,86 +337,6 @@ async def new_assistant(request: Request, name: str = Form(...), instructions: s
         flash_error(request, f'Ошибка: {e}')
     return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
 
-def _assistant_tool_resources(a):
-    """Return assistant tool resources as a plain dict."""
-    if not a:
-        return {}
-    tr = getattr(a, "tool_resources", None)
-    if hasattr(tr, "model_dump"):
-        try:
-            tr = tr.model_dump()
-        except Exception:
-            tr = None
-    if tr is None:
-        if isinstance(a, dict):
-            tr = a.get("tool_resources")
-        else:
-            try:
-                tr = a.model_dump().get("tool_resources")
-            except Exception:
-                tr = None
-    return tr if isinstance(tr, dict) else {}
-
-@app.get('/assistants/{assistant_id}/edit', response_class=HTMLResponse)
-async def edit_assistant(request: Request, assistant_id: str):
-    login_required(request)
-    try:
-        assistant_obj = client.beta.assistants.retrieve(assistant_id)
-        assistant = assistant_obj.model_dump()
-    except Exception as e:
-        flash_error(request, f'Ошибка: {e}')
-        return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
-    models = list_gpt_models()
-    try:
-        vector_stores = client.vector_stores.list(limit=100).data
-    except Exception:
-        vector_stores = []
-    tr = _assistant_tool_resources(assistant) or {}
-    selected_vs = (tr.get('file_search', {}).get('vector_store_ids') or [None])[0]
-    files = tr.get('code_interpreter', {}).get('file_ids', [])
-    return templates.TemplateResponse('edit_assistant.html', {
-        'request': request,
-        'title': 'Редактировать ассистента',
-        'assistant': assistant,
-        'models': models,
-        'vector_stores': vector_stores,
-        'selected_vector_store': selected_vs,
-        'files': files,
-    })
-
-@app.post('/assistants/{assistant_id}/edit')
-async def update_assistant(request: Request, assistant_id: str, name: str = Form(...),
-                           instructions: str = Form(''), model: str = Form('gpt-4o-mini'),
-                           temperature: float = Form(0.30), top_p: float = Form(0.15),
-                           vector_store_id: str = Form('')):
-    login_required(request)
-    try:
-        assistant = client.beta.assistants.retrieve(assistant_id)
-    except Exception as e:
-        flash_error(request, f'Ошибка: {e}')
-        return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
-    tr = _assistant_tool_resources(assistant) or {}
-    files = tr.get('code_interpreter', {}).get('file_ids', [])
-    if vector_store_id:
-        tr['file_search'] = {'vector_store_ids': [vector_store_id]}
-    else:
-        tr.pop('file_search', None)
-    if files:
-        tr.setdefault('code_interpreter', {})['file_ids'] = files
-    params = {
-        'name': name,
-        'instructions': instructions,
-        'model': model,
-        'temperature': temperature,
-        'top_p': top_p,
-        'tool_resources': tr or None,
-    }
-    try:
-        client.beta.assistants.update(assistant_id, **params)
-        flash(request, 'Ассистент обновлен')
-    except Exception as e:
-        flash_error(request, f'Ошибка: {e}')
-    return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
 
 @app.post('/assistants/{assistant_id}/delete')
 async def delete_assistant(request: Request, assistant_id: str):
@@ -427,43 +347,6 @@ async def delete_assistant(request: Request, assistant_id: str):
     except Exception as e:
         flash_error(request, f'Ошибка: {e}')
     return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
-
-@app.post('/assistants/{assistant_id}/files/add')
-async def add_assistant_file(request: Request, assistant_id: str, file_id: str = Form(...)):
-    login_required(request)
-    try:
-        assistant = client.beta.assistants.retrieve(assistant_id)
-        tr = _assistant_tool_resources(assistant) or {}
-        files = tr.get('code_interpreter', {}).get('file_ids', [])
-        files.append(file_id)
-        tr.setdefault('code_interpreter', {})['file_ids'] = files
-        if assistant.tool_resources and assistant.tool_resources.file_search:
-            tr.setdefault('file_search', {}).setdefault('vector_store_ids', assistant.tool_resources.file_search.vector_store_ids)
-        client.beta.assistants.update(assistant_id, tool_resources=tr)
-        flash(request, 'Файл добавлен')
-    except Exception as e:
-        flash_error(request, f'Ошибка: {e}')
-    return RedirectResponse(request.url_for('edit_assistant', assistant_id=assistant_id), status_code=HTTP_302_FOUND)
-
-@app.post('/assistants/{assistant_id}/files/{file_id}/delete')
-async def delete_assistant_file(request: Request, assistant_id: str, file_id: str):
-    login_required(request)
-    try:
-        assistant = client.beta.assistants.retrieve(assistant_id)
-        tr = _assistant_tool_resources(assistant) or {}
-        files = tr.get('code_interpreter', {}).get('file_ids', [])
-        files = [f for f in files if f != file_id]
-        if files:
-            tr.setdefault('code_interpreter', {})['file_ids'] = files
-        else:
-            tr.pop('code_interpreter', None)
-        if assistant.tool_resources and assistant.tool_resources.file_search:
-            tr.setdefault('file_search', {}).setdefault('vector_store_ids', assistant.tool_resources.file_search.vector_store_ids)
-        client.beta.assistants.update(assistant_id, tool_resources=tr or None)
-        flash(request, 'Файл удален')
-    except Exception as e:
-        flash_error(request, f'Ошибка: {e}')
-    return RedirectResponse(request.url_for('edit_assistant', assistant_id=assistant_id), status_code=HTTP_302_FOUND)
 
 @app.get('/assistants/{assistant_id}/test', response_class=HTMLResponse)
 async def test_assistant(request: Request, assistant_id: str):
