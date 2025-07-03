@@ -361,7 +361,7 @@ async def edit_assistant(request: Request, assistant_id: str):
     except Exception:
         vector_stores = []
     tr = _assistant_tool_resources(assistant)
-    selected_vs = tr.get('file_search', {}).get('vector_store_ids', [None])[0]
+    selected_vs = (tr.get('file_search', {}).get('vector_store_ids') or [None])[0]
     files = tr.get('code_interpreter', {}).get('file_ids', [])
     return templates.TemplateResponse('edit_assistant.html', {
         'request': request,
