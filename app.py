@@ -371,7 +371,7 @@ async def edit_assistant(request: Request, assistant_id: str):
         vector_stores = client.vector_stores.list(limit=100).data
     except Exception:
         vector_stores = []
-    tr = _assistant_tool_resources(assistant)
+    tr = _assistant_tool_resources(assistant) or {}
     selected_vs = (tr.get('file_search', {}).get('vector_store_ids') or [None])[0]
     files = tr.get('code_interpreter', {}).get('file_ids', [])
     return templates.TemplateResponse('edit_assistant.html', {
@@ -395,7 +395,7 @@ async def update_assistant(request: Request, assistant_id: str, name: str = Form
     except Exception as e:
         flash_error(request, f'Ошибка: {e}')
         return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
-    tr = _assistant_tool_resources(assistant)
+    tr = _assistant_tool_resources(assistant) or {}
     files = tr.get('code_interpreter', {}).get('file_ids', [])
     if vector_store_id:
         tr['file_search'] = {'vector_store_ids': [vector_store_id]}
@@ -433,7 +433,7 @@ async def add_assistant_file(request: Request, assistant_id: str, file_id: str =
     login_required(request)
     try:
         assistant = client.beta.assistants.retrieve(assistant_id)
-        tr = _assistant_tool_resources(assistant)
+        tr = _assistant_tool_resources(assistant) or {}
         files = tr.get('code_interpreter', {}).get('file_ids', [])
         files.append(file_id)
         tr.setdefault('code_interpreter', {})['file_ids'] = files
@@ -450,7 +450,7 @@ async def delete_assistant_file(request: Request, assistant_id: str, file_id: st
     login_required(request)
     try:
         assistant = client.beta.assistants.retrieve(assistant_id)
-        tr = _assistant_tool_resources(assistant)
+        tr = _assistant_tool_resources(assistant) or {}
         files = tr.get('code_interpreter', {}).get('file_ids', [])
         files = [f for f in files if f != file_id]
         if files:
