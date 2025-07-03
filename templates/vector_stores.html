@@ -35,12 +35,12 @@
     <ul class="pagination">
         {% if prev_page %}
         <li class="page-item">
-            <a class="page-link" href="{{ url_for('list_vector_stores', page=prev_page, q=q) }}">Предыдущая</a>
+            <a class="page-link" href="{{ url_for('list_vector_stores') }}?page={{ prev_page }}&q={{ q }}">Предыдущая</a>
         </li>
         {% endif %}
         {% if next_page %}
         <li class="page-item">
-            <a class="page-link" href="{{ url_for('list_vector_stores', page=next_page, q=q) }}">Следующая</a>
+            <a class="page-link" href="{{ url_for('list_vector_stores') }}?page={{ next_page }}&q={{ q }}">Следующая</a>
         </li>
         {% endif %}
     </ul>
