@@ -338,7 +338,11 @@ async def new_assistant(request: Request, name: str = Form(...), instructions: s
     return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
 
 def _assistant_tool_resources(a):
-    return a.tool_resources.model_dump() if a.tool_resources else {}
+    """Return assistant tool resources as dict, never None."""
+    if not a or not getattr(a, "tool_resources", None):
+        return {}
+    tr = a.tool_resources.model_dump()
+    return tr or {}
 
 @app.get('/assistants/{assistant_id}/edit', response_class=HTMLResponse)
 async def edit_assistant(request: Request, assistant_id: str):
