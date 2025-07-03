@@ -742,6 +742,113 @@ async def api_delete_thread(thread_id: str):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+
+# ----------- Additional utility API endpoints -----------
+
+@app.get('/api/billing')
+async def api_billing():
+    """Return billing information used on the dashboard."""
+    return get_billing_data()
+
+
+@app.post('/api/register')
+async def api_register(username: str = Form(...), password: str = Form(...)):
+    """Register a new user if registration is open."""
+    if get_setting('registration_open', '1') != '1':
+        raise HTTPException(403, 'Регистрация закрыта')
+    with get_db() as db:
+        try:
+            db.execute(
+                'INSERT INTO users (username, password) VALUES (?,?)',
+                (username, generate_password_hash(password))
+            )
+            return {'registered': username}
+        except sqlite3.IntegrityError:
+            raise HTTPException(409, 'Пользователь уже существует')
+
+
+@app.post('/api/login')
+async def api_login_endpoint(
+    request: Request, username: str = Form(...), password: str = Form(...)
+):
+    """Log in and start a session."""
+    with get_db() as db:
+        user = db.execute(
+            'SELECT * FROM users WHERE username=?', (username,)
+        ).fetchone()
+    if not user or not check_password_hash(user['password'], password):
+        raise HTTPException(401, 'Неверные учетные данные')
+    request.session['user_id'] = user['id']
+    return {'logged_in': username}
+
+
+@app.post('/api/logout')
+async def api_logout_endpoint(request: Request):
+    """Log out the current user."""
+    request.session.pop('user_id', None)
+    return {'logged_out': True}
+
+
+@app.get('/api/settings')
+async def api_get_settings():
+    """Return site settings."""
+    return {
+        'registration_open': get_setting('registration_open', '1') == '1'
+    }
+
+
+@app.put('/api/settings')
+async def api_update_settings(registration_open: str = Form(None)):
+    """Update the registration setting."""
+    if registration_open is not None:
+        set_setting(
+            'registration_open',
+            '1' if registration_open in ('1', 'true', 'on', 'True') else '0'
+        )
+    return {'registration_open': get_setting('registration_open', '1') == '1'}
+
+
+@app.put('/api/password')
+async def api_change_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...)
+):
+    """Change password for the current user."""
+    login_required(request)
+    with get_db() as db:
+        user = db.execute(
+            'SELECT * FROM users WHERE id=?', (request.session['user_id'],)
+        ).fetchone()
+        if not user or not check_password_hash(user['password'], current_password):
+            raise HTTPException(403, 'Неверный текущий пароль')
+        db.execute(
+            'UPDATE users SET password=? WHERE id=?',
+            (generate_password_hash(new_password), user['id'])
+        )
+    return {'updated': True}
+
+
+@app.post('/api/assistants/{assistant_id}/chat')
+async def api_assistant_chat(assistant_id: str, message: str = Form(...)):
+    """Send one message to an assistant in a new temporary thread."""
+    try:
+        thread = client.beta.threads.create()
+        client.beta.threads.messages.create(thread.id, role='user', content=message)
+        run = client.beta.threads.runs.create(
+            thread_id=thread.id, assistant_id=assistant_id
+        )
+        while run.status in ('queued', 'in_progress'):
+            time.sleep(1)
+            run = client.beta.threads.runs.retrieve(run.id, thread_id=thread.id)
+        messages = client.beta.threads.messages.list(thread.id, order='asc').data
+        return {
+            'thread_id': thread.id,
+            'messages': [m.model_dump() for m in messages]
+        }
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 if __name__ == '__main__':
     import uvicorn
     uvicorn.run(app, host='0.0.0.0', port=8000)

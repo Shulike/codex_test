@@ -87,3 +87,11 @@
   `assistant_id` в форме.
 - `GET /api/threads/{id}/runs/{run_id}` — статус запуска.
 - `POST /api/threads/{id}/runs/{run_id}/cancel` — отменить выполнение.
+- `POST /api/assistants/{id}/chat` — задать вопрос ассистенту в новом треде.
+- `GET /api/billing` — данные баланса и расходов.
+- `POST /api/register` — регистрация пользователя (если разрешена).
+- `POST /api/login` — вход в систему.
+- `POST /api/logout` — выход из системы.
+- `GET /api/settings` — текущие настройки сайта.
+- `PUT /api/settings` — обновить настройку регистрации.
+- `PUT /api/password` — сменить пароль текущего пользователя.
