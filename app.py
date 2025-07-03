@@ -341,25 +341,24 @@ def _assistant_tool_resources(a):
     """Return assistant tool resources as a plain dict."""
     if not a:
         return {}
+    tr = None
     if isinstance(a, dict):
-        return a.get("tool_resources", {}) or {}
-    try:
-        # OpenAI objects may expose tool_resources either as a model instance or
-        # already dumped into a dict. Handle both cases gracefully.
-        tr = getattr(a, "tool_resources", None)
+        tr = a.get("tool_resources")
+    else:
+        try:
+            tr = getattr(a, "tool_resources", None)
+            if hasattr(tr, "model_dump"):
+                tr = tr.model_dump()
+        except Exception:
+            tr = None
         if tr is None:
-            return {}
-        if isinstance(tr, dict):
-            return tr
-        if hasattr(tr, "model_dump"):
-            return tr.model_dump()
-    except Exception:
-        pass
-    try:
-        dumped = a.model_dump()
-        return dumped.get("tool_resources", {}) or {}
-    except Exception:
+            try:
+                tr = a.model_dump().get("tool_resources")
+            except Exception:
+                tr = None
+    if not isinstance(tr, dict):
         return {}
+    return tr
 
 @app.get('/assistants/{assistant_id}/edit', response_class=HTMLResponse)
 async def edit_assistant(request: Request, assistant_id: str):
