@@ -77,6 +77,13 @@ templates = Jinja2Templates(directory='templates')
 templates.env.globals['get_flashed_messages'] = get_flashed_messages
 templates.env.globals['url_for'] = url_for
 
+@pass_context
+def current_user_ctx(ctx):
+    request: Request = ctx['request']
+    return current_user(request)
+
+templates.env.globals['current_user'] = current_user_ctx
+
 def current_user(request: Request):
     uid = request.session.get('user_id')
     if not uid:
