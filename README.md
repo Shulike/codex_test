@@ -62,7 +62,9 @@
 
 Помимо веб-интерфейса можно обращаться к приложению программно. Все
 эндпоинты начинаются с префикса `/api`. Для совместимости также
-поддерживается префикс `/bot`.
+поддерживается префикс `/bot`. POST-запросы принимают данные в виде
+`application/json`, а формы (`application/x-www-form-urlencoded`) остаются
+для обратной совместимости и считаются устаревшими.
 Доступные маршруты:
 
 - `GET /api/assistants` — список ассистентов.
@@ -80,16 +82,17 @@
 - `POST /api/vector_stores/{id}/files` — добавить файл в хранилище.
 - `DELETE /api/vector_stores/{id}/files/{file_id}` — удалить файл из хранилища.
 - `GET /api/models` — список доступных GPT‑моделей.
-- `POST /api/create_thread` — создать новый thread, возвращает `thread_id`.
+ - `POST /api/create_thread` — создать thread (`{"initial_message":"..."}` опционально), возвращает `thread_id`.
 - `GET /api/threads/{id}` — получить данные треда.
 - `DELETE /api/threads/{id}` — удалить тред.
-- `POST /api/threads/{id}/messages` — добавить сообщение пользователя.
+- `POST /api/threads/{id}/messages` — добавить сообщение (`{"role": "user", "content": "..."}`).
 - `GET /api/threads/{id}/messages` — получить сообщения треда.
-- `POST /api/run` — запустить ассистента в треде. Требуются поля
-  `thread_id` и `assistant_id`.
-- `GET /api/thread_status/{run_id}` — статус запущенного треда. В
-  параметре `thread_id` передаётся идентификатор треда.
-- `POST /api/threads/{id}/runs/{run_id}/cancel` — отменить выполнение.
+- `POST /api/run` — запустить ассистента (`{"thread_id":"...","assistant_id":"..."}`).
+- `GET /api/thread_status/{run_id}` — статус выполнения, параметр `thread_id` передаётся через query.
+- `POST /api/cancel_run/{run_id}` — отменить выполнение (`{"thread_id":"..."}`).
+- `POST /api/threads/{id}/runs/{run_id}/cancel` — устаревший маршрут отмены.
+- `GET /api/latest_message/{thread_id}` — последняя реплика треда.
+- `GET /api/file_metadata/{file_id}` — имя файла.
 - `POST /api/assistants/{id}/chat` — задать вопрос ассистенту в новом треде.
 - `GET /api/billing` — данные баланса и расходов.
 - `POST /api/register` — регистрация пользователя (если разрешена).

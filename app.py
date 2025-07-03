@@ -476,10 +476,24 @@ async def api_get_assistant(assistant_id: str):
 
 @app.post('/bot/create_thread')
 @app.post('/api/create_thread')
-async def api_create_thread():
+async def api_create_thread(
+    request: Request,
+    initial_message_form: str = Form(None)
+):
     """Create a new thread."""
     try:
-        thread = client.beta.threads.create()
+        initial_message = None
+        if request.headers.get('content-type', '').startswith('application/json'):
+            data = await request.json()
+            initial_message = data.get('initial_message')
+        else:
+            initial_message = initial_message_form
+        if initial_message:
+            thread = client.beta.threads.create(
+                messages=[{"role": "user", "content": initial_message}]
+            )
+        else:
+            thread = client.beta.threads.create()
         return {'thread_id': thread.id}
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -487,11 +501,23 @@ async def api_create_thread():
 
 @app.post('/bot/threads/{thread_id}/messages')
 @app.post('/api/threads/{thread_id}/messages')
-async def api_add_message(thread_id: str, content: str = Form(...)):
-    """Add a user message to a thread."""
+async def api_add_message(
+    thread_id: str,
+    request: Request,
+    role_form: str = Form('user'),
+    content_form: str = Form(...)
+):
+    """Add a message to a thread."""
     try:
+        if request.headers.get('content-type', '').startswith('application/json'):
+            data = await request.json()
+            role = data.get('role', 'user')
+            content = data.get('content')
+        else:
+            role = role_form
+            content = content_form
         msg = client.beta.threads.messages.create(
-            thread_id, role='user', content=content
+            thread_id, role=role, content=content
         )
         return msg.model_dump()
     except Exception as e:
@@ -511,13 +537,24 @@ async def api_list_messages(thread_id: str):
 
 @app.post('/bot/run')
 @app.post('/api/run')
-async def api_run(thread_id: str = Form(...), assistant_id: str = Form(...)):
+async def api_run(
+    request: Request,
+    thread_id_form: str = Form(None),
+    assistant_id_form: str = Form(None)
+):
     """Start a run for a thread with the given assistant."""
     try:
+        if request.headers.get('content-type', '').startswith('application/json'):
+            data = await request.json()
+            thread_id = data.get('thread_id')
+            assistant_id = data.get('assistant_id')
+        else:
+            thread_id = thread_id_form
+            assistant_id = assistant_id_form
         run = client.beta.threads.runs.create(
             thread_id=thread_id, assistant_id=assistant_id
         )
-        return run.model_dump()
+        return {'id': run.id, 'status': run.status}
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -528,18 +565,38 @@ async def api_thread_status(run_id: str, thread_id: str):
     """Get status information for a run."""
     try:
         run = client.beta.threads.runs.retrieve(run_id, thread_id=thread_id)
-        return run.model_dump()
+        return {'status': run.status}
     except Exception as e:
         raise HTTPException(500, str(e))
 
 
 @app.post('/bot/threads/{thread_id}/runs/{run_id}/cancel')
 @app.post('/api/threads/{thread_id}/runs/{run_id}/cancel')
-async def api_cancel_run(thread_id: str, run_id: str):
-    """Cancel a running thread."""
+async def api_cancel_run_deprecated(thread_id: str, run_id: str):
+    """Cancel a running thread (deprecated path)."""
     try:
         run = client.beta.threads.runs.cancel(run_id, thread_id=thread_id)
-        return run.model_dump()
+        return {'status': run.status}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post('/bot/cancel_run/{run_id}')
+@app.post('/api/cancel_run/{run_id}')
+async def api_cancel_run(
+    run_id: str,
+    request: Request,
+    thread_id_form: str = Form(None)
+):
+    """Cancel a running thread."""
+    try:
+        if request.headers.get('content-type', '').startswith('application/json'):
+            data = await request.json()
+            thread_id = data.get('thread_id')
+        else:
+            thread_id = thread_id_form
+        run = client.beta.threads.runs.cancel(run_id, thread_id=thread_id)
+        return {'status': run.status}
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -762,6 +819,36 @@ async def api_delete_thread(thread_id: str):
     try:
         client.beta.threads.delete(thread_id)
         return {'deleted': thread_id}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get('/bot/latest_message/{thread_id}')
+@app.get('/api/latest_message/{thread_id}')
+async def api_latest_message(thread_id: str):
+    """Return the latest message in a thread."""
+    try:
+        msgs = client.beta.threads.messages.list(thread_id, order='desc', limit=1).data
+        if not msgs:
+            return {'content': '', 'annotations': []}
+        msg = msgs[0]
+        content = ''
+        annotations = []
+        if msg.content and msg.content[0].type == 'text':
+            content = msg.content[0].text.value
+            annotations = msg.content[0].text.annotations
+        return {'content': content, 'annotations': annotations}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get('/bot/file_metadata/{file_id}')
+@app.get('/api/file_metadata/{file_id}')
+async def api_file_metadata(file_id: str):
+    """Return metadata about a file."""
+    try:
+        f = client.files.retrieve(file_id)
+        return {'filename': f.filename}
     except Exception as e:
         raise HTTPException(500, str(e))
 
