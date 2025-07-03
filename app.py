@@ -338,14 +338,26 @@ async def new_assistant(request: Request, name: str = Form(...), instructions: s
     return RedirectResponse(request.url_for('list_assistants'), status_code=HTTP_302_FOUND)
 
 def _assistant_tool_resources(a):
-    """Return assistant tool resources as dict, never ``None``."""
+    """Return assistant tool resources as a plain dict."""
     if not a:
         return {}
     try:
-        tr = a.model_dump().get('tool_resources')
+        # OpenAI objects may expose tool_resources either as a model instance or
+        # already dumped into a dict. Handle both cases gracefully.
+        tr = getattr(a, "tool_resources", None)
+        if tr is None:
+            return {}
+        if isinstance(tr, dict):
+            return tr
+        if hasattr(tr, "model_dump"):
+            return tr.model_dump()
     except Exception:
-        tr = None
-    return tr or {}
+        pass
+    try:
+        dumped = a.model_dump()
+        return dumped.get("tool_resources", {}) or {}
+    except Exception:
+        return {}
 
 @app.get('/assistants/{assistant_id}/edit', response_class=HTMLResponse)
 async def edit_assistant(request: Request, assistant_id: str):
