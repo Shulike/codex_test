@@ -1,16 +1,21 @@
-import os
-import time
-import sqlite3
-from datetime import datetime, timedelta
-import logging
-from typing import Optional, List
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+FastAPI-микросервис: JSON- и Form-совместимые эндпоинты
+совместимы с Telegram-оркестратором (aiogram) 2025-07-04.
+"""
 
-import requests
-from fastapi import FastAPI, Request, Form, HTTPException, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse
+import os, time, sqlite3, logging, requests
+from datetime import datetime, timedelta
+from typing import List, Optional
+
+from fastapi import (
+    FastAPI, Request, HTTPException, Form, Body, status as http_status
+)
+from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.responses import Response
 from starlette.status import HTTP_302_FOUND
 from jinja2 import pass_context
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -45,6 +50,29 @@ def init_db():
             db.execute("INSERT INTO settings (key, value) VALUES ('registration_open','1')")
 
 init_db()
+
+# -------------------- Pydantic схемы -------------------- #
+class CreateThreadPayload(BaseModel):
+    initial_message: Optional[str] = Field(None, description="Первое сообщение пользователя")
+
+
+class AddMessagePayload(BaseModel):
+    thread_id: str
+    role: str = Field("user", regex="^(user|assistant)$")
+    content: str
+
+
+class RunPayload(BaseModel):
+    thread_id: str
+    assistant_id: str
+
+
+class CancelRunPayload(BaseModel):
+    thread_id: str
+
+
+def form_dep(description: str):
+    return {"deprecated": True, "description": f"[LEGACY] {description}"}
 
 def get_setting(key: str, default: Optional[str] = None):
     with get_db() as db:
@@ -475,18 +503,16 @@ async def api_get_assistant(assistant_id: str):
 
 
 @app.post('/bot/create_thread')
-@app.post('/api/create_thread')
+@app.post('/api/create_thread', tags=['json'])
 async def api_create_thread(
     request: Request,
-    initial_message_form: str = Form(None)
+    initial_message_form: str = Form(None),
+    payload: CreateThreadPayload = Body(None)
 ):
     """Create a new thread."""
     try:
-        initial_message = None
-        if request.headers.get('content-type', '').startswith('application/json'):
-            data = await request.json()
-            initial_message = data.get('initial_message')
-        else:
+        initial_message = payload.initial_message if payload else None
+        if initial_message is None:
             initial_message = initial_message_form
         if initial_message:
             thread = client.beta.threads.create(
@@ -499,20 +525,24 @@ async def api_create_thread(
         raise HTTPException(500, str(e))
 
 
-@app.post('/bot/threads/{thread_id}/messages')
-@app.post('/api/threads/{thread_id}/messages')
+@app.post(
+    '/bot/threads/{thread_id}/messages',
+    openapi_extra=form_dep('use /api/add_message with JSON')
+)
+@app.post('/api/add_message', tags=['json'])
 async def api_add_message(
-    thread_id: str,
-    request: Request,
+    thread_id: str = None,
+    request: Request = None,
     role_form: str = Form('user'),
-    content_form: str = Form(...)
+    content_form: str = Form(...),
+    payload: AddMessagePayload = Body(None)
 ):
     """Add a message to a thread."""
     try:
-        if request.headers.get('content-type', '').startswith('application/json'):
-            data = await request.json()
-            role = data.get('role', 'user')
-            content = data.get('content')
+        if payload:
+            thread_id = payload.thread_id
+            role = payload.role
+            content = payload.content
         else:
             role = role_form
             content = content_form
@@ -535,19 +565,22 @@ async def api_list_messages(thread_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.post('/bot/run')
-@app.post('/api/run')
+@app.post(
+    '/bot/run',
+    openapi_extra=form_dep('use /api/run with JSON')
+)
+@app.post('/api/run', tags=['json'])
 async def api_run(
     request: Request,
     thread_id_form: str = Form(None),
-    assistant_id_form: str = Form(None)
+    assistant_id_form: str = Form(None),
+    payload: RunPayload = Body(None)
 ):
     """Start a run for a thread with the given assistant."""
     try:
-        if request.headers.get('content-type', '').startswith('application/json'):
-            data = await request.json()
-            thread_id = data.get('thread_id')
-            assistant_id = data.get('assistant_id')
+        if payload:
+            thread_id = payload.thread_id
+            assistant_id = payload.assistant_id
         else:
             thread_id = thread_id_form
             assistant_id = assistant_id_form
@@ -560,17 +593,25 @@ async def api_run(
 
 
 @app.get('/bot/thread_status/{run_id}')
-@app.get('/api/thread_status/{run_id}')
-async def api_thread_status(run_id: str, thread_id: str):
-    """Get status information for a run."""
+@app.get('/api/thread_status/{thread_id}', tags=['json'])
+async def api_thread_status(run_id: str = None, thread_id: str = None):
+    """Get status information for the latest run."""
     try:
-        run = client.beta.threads.runs.retrieve(run_id, thread_id=thread_id)
-        return {'status': run.status}
+        if thread_id is None:
+            thread_id = run_id
+        runs = client.beta.threads.runs.list(thread_id, order='desc', limit=1).data
+        if not runs:
+            raise HTTPException(http_status.HTTP_404_NOT_FOUND, 'No runs')
+        run = runs[0]
+        return {'run_id': run.id, 'status': run.status}
     except Exception as e:
         raise HTTPException(500, str(e))
 
 
-@app.post('/bot/threads/{thread_id}/runs/{run_id}/cancel')
+@app.post(
+    '/bot/threads/{thread_id}/runs/{run_id}/cancel',
+    openapi_extra=form_dep('use /api/cancel_run with JSON')
+)
 @app.post('/api/threads/{thread_id}/runs/{run_id}/cancel')
 async def api_cancel_run_deprecated(thread_id: str, run_id: str):
     """Cancel a running thread (deprecated path)."""
@@ -581,22 +622,29 @@ async def api_cancel_run_deprecated(thread_id: str, run_id: str):
         raise HTTPException(500, str(e))
 
 
-@app.post('/bot/cancel_run/{run_id}')
-@app.post('/api/cancel_run/{run_id}')
+@app.post(
+    '/bot/cancel_run/{run_id}',
+    openapi_extra=form_dep('use /api/cancel_run with JSON')
+)
+@app.post('/api/cancel_run', tags=['json'])
 async def api_cancel_run(
-    run_id: str,
-    request: Request,
-    thread_id_form: str = Form(None)
+    run_id: str = None,
+    request: Request = None,
+    thread_id_form: str = Form(None),
+    payload: CancelRunPayload = Body(None)
 ):
     """Cancel a running thread."""
     try:
-        if request.headers.get('content-type', '').startswith('application/json'):
-            data = await request.json()
-            thread_id = data.get('thread_id')
-        else:
-            thread_id = thread_id_form
-        run = client.beta.threads.runs.cancel(run_id, thread_id=thread_id)
-        return {'status': run.status}
+        thread_id = payload.thread_id if payload else thread_id_form
+        if not thread_id and run_id:
+            thread_id = run_id
+        # find active run
+        runs = client.beta.threads.runs.list(thread_id, order='desc').data
+        active = next((r for r in runs if r.status in {'queued', 'in_progress'}), None)
+        if not active:
+            return {'status': 'no_active_run'}
+        res = client.beta.threads.runs.cancel(active.id, thread_id=thread_id)
+        return {'status': res.status}
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -824,7 +872,7 @@ async def api_delete_thread(thread_id: str):
 
 
 @app.get('/bot/latest_message/{thread_id}')
-@app.get('/api/latest_message/{thread_id}')
+@app.get('/api/latest_message/{thread_id}', tags=['json'])
 async def api_latest_message(thread_id: str):
     """Return the latest message in a thread."""
     try:
@@ -843,12 +891,12 @@ async def api_latest_message(thread_id: str):
 
 
 @app.get('/bot/file_metadata/{file_id}')
-@app.get('/api/file_metadata/{file_id}')
+@app.get('/api/file_metadata/{file_id}', tags=['json'])
 async def api_file_metadata(file_id: str):
     """Return metadata about a file."""
     try:
         f = client.files.retrieve(file_id)
-        return {'filename': f.filename}
+        return {'filename': f.filename, 'size': f.bytes}
     except Exception as e:
         raise HTTPException(500, str(e))
 

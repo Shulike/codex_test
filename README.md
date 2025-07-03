@@ -85,11 +85,11 @@
  - `POST /api/create_thread` — создать thread (`{"initial_message":"..."}` опционально), возвращает `thread_id`.
 - `GET /api/threads/{id}` — получить данные треда.
 - `DELETE /api/threads/{id}` — удалить тред.
-- `POST /api/threads/{id}/messages` — добавить сообщение (`{"role": "user", "content": "..."}`).
+- `POST /api/add_message` — добавить сообщение (`{"thread_id":"...","role":"user","content":"..."}`).
 - `GET /api/threads/{id}/messages` — получить сообщения треда.
 - `POST /api/run` — запустить ассистента (`{"thread_id":"...","assistant_id":"..."}`).
-- `GET /api/thread_status/{run_id}` — статус выполнения, параметр `thread_id` передаётся через query.
-- `POST /api/cancel_run/{run_id}` — отменить выполнение (`{"thread_id":"..."}`).
+- `GET /api/thread_status/{thread_id}` — статус последнего запуска в треде.
+- `POST /api/cancel_run` — отменить выполнение (`{"thread_id":"..."}`).
 - `POST /api/threads/{id}/runs/{run_id}/cancel` — устаревший маршрут отмены.
 - `GET /api/latest_message/{thread_id}` — последняя реплика треда.
 - `GET /api/file_metadata/{file_id}` — имя файла.
