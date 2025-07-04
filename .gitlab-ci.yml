@@ -1,0 +1,59 @@
+stages:
+ - build
+ - image-to-registry
+ - pub
+
+#Определяем глобальные переменные, одинаковые для всех веток и вариантов
+variables:
+  REGISTRY_LINK: "${CI_PROJECT_PATH}"
+  CA_CERT_ULR: "http://192.168.160.11/gls-ca.crt"
+  CONTAINER_NAME_TEST: "microservice-openai-${CI_COMMIT_REF_NAME}-test"
+  IMAGE_TAG: "latest"
+
+build:
+ stage: build
+ only:
+   - main
+ script:
+   - docker build -t ${IMAGE_WORK_NAME} -f docker/Dockerfile-${CI_COMMIT_REF_NAME} .
+ 
+image-to-registry:
+  stage: image-to-registry
+  only:
+    - main
+  script:
+    - apk --no-cache add wget ca-certificates
+    - wget ${CA_CERT_ULR} -O /usr/local/share/ca-certificates/gls-ca.crt
+    - update-ca-certificates
+    - docker login -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD} ${CI_REGISTRY}
+    - echo "================================================"
+    - echo "Result image is"
+    - echo "docker tag ${IMAGE_WORK_NAME} reg.gls.tld/${REGISTRY_LINK}:${IMAGE_TAG}"
+    - echo "================================================"
+    - docker tag ${IMAGE_WORK_NAME} ${CI_REGISTRY}/${REGISTRY_LINK}:${IMAGE_TAG}
+    - docker push ${CI_REGISTRY}/${REGISTRY_LINK}:${IMAGE_TAG}
+
+pub:
+  stage: pub
+  only:
+    - main
+  script:
+    - apk --no-cache add curl
+    - mkdir ~/.ssh
+    - mkdir ~/.docker
+    - cat ${GLS_KEY_PRIV} >> ~/.ssh/id_rsa
+    - chmod 400 ~/.ssh/id_rsa
+    - ssh-keyscan -p ${PUB_HOST_PORT} -t rsa ${PUB_HOST_ADDR} >> ~/.ssh/known_hosts
+    - cat ${DOCKER_AUTHDATA} > /tmp/docker-config.json
+    - touch /tmp/hostscript.sh
+    - touch /tmp/makeenv.sh
+    - echo "[ -d ${PUB_DIR}/${IMAGE_WORK_NAME}/ ] || mkdir -p ${PUB_DIR}/${IMAGE_WORK_NAME}/" >> /tmp/makeenv.sh
+    - echo "docker-compose -f ${PUB_DIR}/${IMAGE_WORK_NAME}/docker-compose-${IMAGE_WORK_NAME}.yml down" >> /tmp/hostscript.sh
+    - echo "docker pull ${CI_REGISTRY}/${REGISTRY_LINK}:${IMAGE_TAG}" >> /tmp/hostscript.sh
+    - echo "docker-compose -f ${PUB_DIR}/${IMAGE_WORK_NAME}/docker-compose-${IMAGE_WORK_NAME}.yml up -d" >> /tmp/hostscript.sh
+    - scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -P ${PUB_HOST_PORT} /tmp/makeenv.sh ${PUB_HOST_USER}@${PUB_HOST_ADDR}:/tmp/makeenv.sh
+    - ssh ${PUB_HOST_USER}@${PUB_HOST_ADDR} -p ${PUB_HOST_PORT} -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no 'sh -x /tmp/makeenv.sh'
+    - scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -P ${PUB_HOST_PORT} /tmp/docker-config.json $PUB_HOST_USER@$PUB_HOST_ADDR:/root/.docker/config.json
+    - scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -P ${PUB_HOST_PORT} /tmp/hostscript.sh ${PUB_HOST_USER}@${PUB_HOST_ADDR}:/tmp/hostscript.sh
+    - scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -P ${PUB_HOST_PORT} ./docker/docker-compose-${IMAGE_WORK_NAME}.yml ${PUB_HOST_USER}@${PUB_HOST_ADDR}:${PUB_DIR}/${IMAGE_WORK_NAME}/docker-compose-${IMAGE_WORK_NAME}.yml    
+    - ssh ${PUB_HOST_USER}@${PUB_HOST_ADDR} -p ${PUB_HOST_PORT} -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no 'sh -x /tmp/hostscript.sh'
